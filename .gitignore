@@ -1,0 +1,19 @@
+node_modules/
+dist/
+
+# 数据库和封面缓存都能从 notion-export + missevan-export.json 重建
+data/radiotracker.db
+data/radiotracker.db-wal
+data/radiotracker.db-shm
+data/covers/remote/
+
+# 猫耳导出里含账号相关信息，不要提交
+data/missevan-export.json
+
+notion-export/unpacked/
+.DS_Store
+tsconfig.tsbuildinfo
+
+# 猫耳登录态，绝不提交
+data/.missevan-session.json
+data/missevan-lists.json

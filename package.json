@@ -1,0 +1,35 @@
+{
+  "name": "radiotracker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,magenta \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "node server/index.js",
+    "dev:web": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "import:notion": "node scripts/import-notion.mjs",
+    "import:missevan": "node scripts/import-missevan.mjs",
+    "cache:covers": "node scripts/cache-covers.mjs",
+    "fetch:details": "node scripts/fetch-details.mjs",
+    "fetch:lists": "node scripts/fetch-lists.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.17",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "csv-parse": "^5.6.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  }
+}

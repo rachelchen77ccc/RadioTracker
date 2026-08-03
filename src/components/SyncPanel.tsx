@@ -114,8 +114,9 @@ export function SyncPanel({
   useEffect(() => {
     if (!autoStart || kicked.current) return;
     if (!session || job === null) return;      // 等状态问回来再决定
+    if (!session.hasSession) return;            // 首次设置完成后再消费自动启动
     kicked.current = true;
-    if (session.hasSession && !job.running) start();
+    if (!job.running) start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoStart, session, job]);
 

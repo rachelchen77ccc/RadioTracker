@@ -96,6 +96,7 @@
   const payload = {
     exportedAt: new Date().toISOString(),
     userId: uid,
+    listsComplete: true,
     boughtIds: bought.map(d => String(d.id)),
     subscriptionIds: subs.map(d => String(d.id)),
     bought,

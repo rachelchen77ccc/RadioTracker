@@ -227,6 +227,12 @@ app.post('/api/sync', express.json({ limit: '32mb' }), async (req, res) => {
     fs.writeFileSync(path.join(ROOT_DIR, 'data', 'missevan-lists.json'), JSON.stringify(lists));
   }
 
+  // 「自动更新」的核心就是对比账户里的已购/追剧。没有登录态或完整导出时
+  // 不能假装同步成功，否则用户会看到“完成”，两张主清单却完全没更新。
+  if (!lists && !hasSession) {
+    return res.status(400).json({ error: '请先保存猫耳登录凭据，再运行自动更新' });
+  }
+
   Object.assign(job, {
     running: true, startedAt: new Date().toISOString(), finishedAt: null,
     step: '准备', log: [], error: null, expired: false,
@@ -639,8 +645,13 @@ const bucket = (where, rankCol) => (req, res) => {
   });
 };
 
-app.get('/api/views/purchased',  bucket('purchased = 1', 'bought_order'));
-app.get('/api/views/collection', bucket('subscribed = 1 AND purchased = 0', 'sub_order'));
+// 这两个入口只代表猫耳账户里的两张清单。漫播/其他平台的购买记录
+// 仍保留在档案库中，但不能混进「我的已购」。
+const MISSEVAN_PURCHASED = "platform = '猫耳' AND purchased = 1";
+const MISSEVAN_COLLECTION = "platform = '猫耳' AND subscribed = 1 AND purchased = 0";
+
+app.get('/api/views/purchased',  bucket(MISSEVAN_PURCHASED, 'bought_order'));
+app.get('/api/views/collection', bucket(MISSEVAN_COLLECTION, 'sub_order'));
 
 
 /** 两个入口各自的状态计数，用来画筛选条 */
@@ -650,8 +661,8 @@ const bucketCounts = where => (_req, res) => {
     FROM dramas WHERE ${where} GROUP BY 1
   `).all());
 };
-app.get('/api/views/purchased/counts',  bucketCounts('purchased = 1'));
-app.get('/api/views/collection/counts', bucketCounts('subscribed = 1 AND purchased = 0'));
+app.get('/api/views/purchased/counts',  bucketCounts(MISSEVAN_PURCHASED));
+app.get('/api/views/collection/counts', bucketCounts(MISSEVAN_COLLECTION));
 
 // 筛选项 —— 全部从现有数据里数出来，不维护任何硬编码枚举。
 // 加了新分类、新社团、新 CV 会自动出现在筛选面板里。
@@ -791,12 +802,12 @@ app.get('/api/stats', (_req, res) => {
     byStatus: db.prepare('SELECT status, COUNT(*) c FROM dramas GROUP BY status').all(),
     byPlatform: db.prepare('SELECT platform, COUNT(*) c FROM dramas GROUP BY platform').all(),
     byKind: db.prepare('SELECT kind, COUNT(*) c FROM dramas GROUP BY kind').all(),
-    purchased: one('SELECT COUNT(*) c FROM dramas WHERE purchased = 1').c,
-    subscribed: one('SELECT COUNT(*) c FROM dramas WHERE subscribed = 1').c,
+    purchased: one(`SELECT COUNT(*) c FROM dramas WHERE ${MISSEVAN_PURCHASED}`).c,
+    subscribed: one(`SELECT COUNT(*) c FROM dramas WHERE platform = '猫耳' AND subscribed = 1`).c,
     reviews: one('SELECT COUNT(*) c FROM dramas WHERE review IS NOT NULL').c,
     // 侧栏角标：两个主入口显示「还没标状态的有几部」，那才是待办
-    purchasedTodo:  one('SELECT COUNT(*) c FROM dramas WHERE purchased = 1 AND status IS NULL').c,
-    collectionTodo: one('SELECT COUNT(*) c FROM dramas WHERE subscribed = 1 AND purchased = 0 AND status IS NULL').c,
+    purchasedTodo:  one(`SELECT COUNT(*) c FROM dramas WHERE ${MISSEVAN_PURCHASED} AND status IS NULL`).c,
+    collectionTodo: one(`SELECT COUNT(*) c FROM dramas WHERE ${MISSEVAN_COLLECTION} AND status IS NULL`).c,
     listening: one("SELECT COUNT(*) c FROM dramas WHERE status = '在听'").c,
     rewatchQueue: one('SELECT COUNT(*) c FROM dramas WHERE rewatch_queued = 1').c,
     lastSync: one("SELECT ran_at, kind FROM sync_log ORDER BY id DESC LIMIT 1"),

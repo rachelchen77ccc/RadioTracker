@@ -35,6 +35,11 @@ console.log(`
   回填空缺字段 ${r.filled} 处${r.unsubscribed ? `\n  猫耳上已取关，移出收藏 ${r.unsubscribed} 部` : ''}
 `);
 
+console.log(r.summary.baseline
+  ? `猫耳列表基线：已购 ${r.summary.boughtTotal} · 追剧 ${r.summary.subscriptionTotal}`
+  : `猫耳列表变化：已购 +${r.summary.boughtAdded}/-${r.summary.boughtRemoved} · 追剧 +${r.summary.subscribedAdded}/-${r.summary.subscribedRemoved}\n当前总数：已购 ${r.summary.boughtTotal} · 追剧 ${r.summary.subscriptionTotal}`
+);
+
 if (r.notices.length) {
   console.log(`需要你确认的变化（${r.notices.length} 条）：`);
   for (const n of r.notices.slice(0, 20)) console.log(`   ${n.title} — ${n.change}`);

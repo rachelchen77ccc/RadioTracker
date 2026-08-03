@@ -13,7 +13,6 @@ const BLUE = '#8da5ad';
 const GOLD = '#b6a06a';
 const RULE = '#d5d4c5';
 const SANS = '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
-const SERIF = 'Georgia, "Songti SC", serif';
 const MONO = '"SF Mono", SFMono-Regular, Menlo, monospace';
 
 type Highlights = {
@@ -68,13 +67,13 @@ function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number): string
 
 function sectionTitle(ctx: CanvasRenderingContext2D, y: number, code: string, title: string, caption: string) {
   ctx.fillStyle = MUTED;
-  ctx.font = `700 14px ${MONO}`;
+  ctx.font = `bold 14px ${SANS}`;
   ctx.fillText(code, PAD, y);
   ctx.fillStyle = INK;
-  ctx.font = `700 25px ${SANS}`;
+  ctx.font = `bold 25px ${SANS}`;
   ctx.fillText(title, PAD, y + 27);
   ctx.fillStyle = MUTED;
-  ctx.font = `italic 20px ${SERIF}`;
+  ctx.font = `19px ${SANS}`;
   ctx.fillText(caption, PAD, y + 60);
 }
 
@@ -110,22 +109,22 @@ export async function renderYearShareCard(
   ctx.strokeRect(26, 26, W - 52, H - 52);
 
   ctx.fillStyle = INK;
-  ctx.font = `700 15px ${MONO}`;
-  ctx.fillText('LISTENING ARCHIVE / YEAR END EDITION', PAD, 54);
+  ctx.font = `bold 15px ${SANS}`;
+  ctx.fillText('我的听剧档案 · 年度特刊', PAD, 54);
   ctx.textAlign = 'right';
-  ctx.fillText('NO. ' + stats.year, W - PAD, 54);
+  ctx.fillText('编号 · ' + stats.year, W - PAD, 54);
   ctx.textAlign = 'left';
   ctx.strokeStyle = INK;
   ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(PAD, 84.5); ctx.lineTo(W - PAD, 84.5); ctx.stroke();
 
   ctx.fillStyle = SAGE;
-  ctx.font = `italic 36px ${SERIF}`;
-  ctx.fillText('A catalogue of what stayed with me', PAD, 142);
+  ctx.font = `30px ${SANS}`;
+  ctx.fillText('这一年，声音留下的故事', PAD, 142);
   ctx.fillStyle = INK;
-  ctx.font = `700 112px ${SANS}`;
+  ctx.font = `bold 112px ${SANS}`;
   ctx.fillText(stats.year, PAD, 186);
-  ctx.font = `600 31px ${SANS}`;
+  ctx.font = `bold 31px ${SANS}`;
   ctx.fillText('听剧年度总结', PAD + 12, 330);
 
   const motifX = W - 212;
@@ -137,9 +136,9 @@ export async function renderYearShareCard(
   ctx.fillStyle = PAPER_LIGHT;
   ctx.fillRect(motifX - 43, 222, 86, 44);
   ctx.fillStyle = INK;
-  ctx.font = `700 13px ${MONO}`;
+  ctx.font = `bold 13px ${SANS}`;
   ctx.textAlign = 'center';
-  ctx.fillText('PLAY / KEEP', motifX, 237);
+  ctx.fillText('听见 / 留存', motifX, 237);
   ctx.textAlign = 'left';
 
   const metricY = 435;
@@ -154,10 +153,10 @@ export async function renderYearShareCard(
     ctx.fillStyle = color;
     ctx.fillRect(x, metricY - 11, 40, 5);
     ctx.fillStyle = INK;
-    ctx.font = `700 50px ${MONO}`;
+    ctx.font = `bold 50px ${MONO}`;
     ctx.fillText(value, x, metricY);
     ctx.fillStyle = MUTED;
-    ctx.font = `600 14px ${MONO}`;
+    ctx.font = `bold 14px ${SANS}`;
     ctx.fillText(label, x, metricY + 62);
     if (i < metrics.length - 1) {
       ctx.strokeStyle = RULE;
@@ -168,7 +167,7 @@ export async function renderYearShareCard(
   ctx.strokeStyle = INK;
   ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(PAD, 575.5); ctx.lineTo(W - PAD, 575.5); ctx.stroke();
-  sectionTitle(ctx, 618, '01 / SELECTED SHELF', '年度高分 Top 5', 'Five stories worth keeping on the same shelf.');
+  sectionTitle(ctx, 618, '01 / 年度精选', '年度高分五选', '值得留在同一层书架上的五个故事。');
 
   const cardY = 714;
   const gap = 13;
@@ -186,18 +185,18 @@ export async function renderYearShareCard(
     ctx.fillRect(x, cardY, cardW, 6);
     drawCover(ctx, images[i], x + 10, cardY + 17, cardW - 20, coverH);
     ctx.fillStyle = accents[i];
-    ctx.font = `700 15px ${MONO}`;
+    ctx.font = `bold 15px ${MONO}`;
     ctx.fillText(String(i + 1).padStart(2, '0'), x + 12, cardY + 238);
     ctx.fillStyle = INK;
-    ctx.font = `700 18px ${SANS}`;
+    ctx.font = `bold 18px ${SANS}`;
     wrap(ctx, d.title, cardW - 24).slice(0, 2).forEach((line, lineIndex) => ctx.fillText(line, x + 12, cardY + 267 + lineIndex * 25));
     ctx.fillStyle = MUTED;
-    ctx.font = `700 13px ${MONO}`;
+    ctx.font = `bold 13px ${MONO}`;
     ctx.fillText(d.rating == null ? '—' : `${d.rating.toFixed(1)}  ★`, x + 12, cardY + 316);
   });
 
   const rhythmY = 1115;
-  sectionTitle(ctx, rhythmY, '02 / LISTENING RHYTHM', '听剧节奏', 'Twelve bars, one for every month of the year.');
+  sectionTitle(ctx, rhythmY, '02 / 月度节奏', '听剧节奏', '十二个月，十二段不同的听剧节奏。');
   const monthRows = highlights.byMonth.length ? highlights.byMonth : Array.from({ length: 12 }, (_, i) => ({ month: i + 1, n: 0 }));
   const maxMonth = Math.max(1, ...monthRows.map(d => d.n));
   const chartX = PAD + 30;
@@ -225,17 +224,17 @@ export async function renderYearShareCard(
     ctx.fillStyle = accents[i % accents.length];
     ctx.fillRect(x, y, barW, height);
     ctx.fillStyle = INK;
-    ctx.font = `700 17px ${MONO}`;
+    ctx.font = `bold 17px ${MONO}`;
     ctx.textAlign = 'center';
     ctx.fillText(String(d.n), x + barW / 2, y - 28);
     ctx.fillStyle = MUTED;
-    ctx.font = `700 15px ${MONO}`;
+    ctx.font = `bold 15px ${MONO}`;
     ctx.fillText(String(d.month).padStart(2, '0'), x + barW / 2, baseline + 20);
     ctx.textAlign = 'left';
   });
 
   const tableY = 1480;
-  sectionTitle(ctx, tableY, '03 / CAST IN ROTATION', '常听 CV', 'The voices that returned again and again.');
+  sectionTitle(ctx, tableY, '03 / 常听声线', '常听 CV', '这一年，反复陪伴我的声音。');
   const cvRows = highlights.topCvs.slice(0, 5);
   const cvMax = Math.max(1, ...cvRows.map(d => d.n));
   cvRows.forEach((d, i) => {
@@ -243,24 +242,24 @@ export async function renderYearShareCard(
     ctx.fillStyle = i % 2 ? '#e9eee7' : PAPER_LIGHT;
     ctx.fillRect(PAD, y, W - PAD * 2, 42);
     ctx.fillStyle = i === 0 ? GOLD : MUTED;
-    ctx.font = `700 14px ${MONO}`;
+    ctx.font = `bold 14px ${MONO}`;
     ctx.fillText(String(i + 1).padStart(2, '0'), PAD + 14, y + 13);
     ctx.fillStyle = INK;
-    ctx.font = `600 19px ${SANS}`;
+    ctx.font = `bold 19px ${SANS}`;
     ctx.fillText(d.label, PAD + 72, y + 10);
     ctx.fillStyle = '#d2ded5';
     ctx.fillRect(PAD + 362, y + 18, 330, 7);
     ctx.fillStyle = BLUE;
     ctx.fillRect(PAD + 362, y + 18, (d.n / cvMax) * 330, 7);
     ctx.fillStyle = INK;
-    ctx.font = `700 14px ${MONO}`;
+    ctx.font = `bold 14px ${SANS}`;
     ctx.textAlign = 'right';
     ctx.fillText(`${d.n} 部`, W - PAD - 15, y + 13);
     ctx.textAlign = 'left';
   });
 
   const genreY = 1885;
-  sectionTitle(ctx, genreY, '04 / GENRE INDEX', '题材偏好', 'A small index of where the stories led.');
+  sectionTitle(ctx, genreY, '04 / 题材索引', '题材偏好', '故事带我去过的地方。');
   highlights.byCategory.slice(0, 8).forEach((d, i) => {
     const col = i % 2;
     const row = Math.floor(i / 2);
@@ -270,10 +269,10 @@ export async function renderYearShareCard(
     ctx.fillStyle = shades[i % shades.length];
     ctx.fillRect(x, y, 446, 44);
     ctx.fillStyle = INK;
-    ctx.font = `600 19px ${SANS}`;
+    ctx.font = `bold 19px ${SANS}`;
     ctx.fillText(d.label, x + 16, y + 10);
     ctx.fillStyle = MUTED;
-    ctx.font = `700 14px ${MONO}`;
+    ctx.font = `bold 14px ${SANS}`;
     ctx.textAlign = 'right';
     ctx.fillText(`${d.n} 部`, x + 426, y + 14);
     ctx.textAlign = 'left';
@@ -284,10 +283,10 @@ export async function renderYearShareCard(
   ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(PAD, noteY); ctx.lineTo(W - PAD, noteY); ctx.stroke();
   ctx.fillStyle = SAGE;
-  ctx.font = `italic 29px ${SERIF}`;
-  ctx.fillText('A note to this year', PAD, noteY + 42);
+  ctx.font = `bold 27px ${SANS}`;
+  ctx.fillText('写给这一年的话', PAD, noteY + 42);
   ctx.fillStyle = INK;
-  ctx.font = `700 17px ${MONO}`;
+  ctx.font = `bold 17px ${SANS}`;
   ctx.fillText('年度私藏', PAD, noteY + 91);
   ctx.font = `28px ${SANS}`;
   noteLines.forEach((line, i) => ctx.fillText(line, PAD, noteY + 130 + i * 44));
@@ -296,10 +295,10 @@ export async function renderYearShareCard(
   ctx.fillStyle = INK;
   ctx.fillRect(PAD, footerY, W - PAD * 2, 1);
   ctx.fillStyle = MUTED;
-  ctx.font = `13px ${MONO}`;
-  ctx.fillText('MADE WITH MY DRAMA ARCHIVE', PAD, footerY + 32);
+  ctx.font = `13px ${SANS}`;
+  ctx.fillText('我的听剧档案 · 年度总结', PAD, footerY + 32);
   ctx.textAlign = 'right';
-  ctx.fillText('PRESS PLAY, KEEP THE STORY.', W - PAD, footerY + 32);
+  ctx.fillText('按下播放，让故事留下。', W - PAD, footerY + 32);
   ctx.textAlign = 'left';
 
   return new Promise<Blob>((resolve, reject) => {

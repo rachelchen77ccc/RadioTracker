@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useFetch } from '../api';
 import { Gallery } from './DramaCard';
 import { renderYearShareCard } from '../yearShareCard';
-import type { Drama, YearStat, YearStats } from '../types';
+import type { Drama, YearStats } from '../types';
 
 /**
  * 年度报告。
@@ -79,7 +79,6 @@ export function YearReport({
 }) {
   const { data: s, loading, error } = useFetch<YearStats>(`/api/years/${year}/stats`, [version]);
   const { data: dramas } = useFetch<Drama[]>(`/api/years/${year}`, [version]);
-  const { data: allYears } = useFetch<YearStat[]>('/api/years', [version]);
   const [pickIds, setPickIds] = useState<number[]>([]);
   const [editing, setEditing] = useState(false);
   const [note, setNote] = useState('');
@@ -140,9 +139,7 @@ export function YearReport({
       const blob = await renderYearShareCard({
         year, total: s.total, episodes: s.episodes, avgRating: s.avgRating, reviews: s.reviews,
       }, topFive, note, {
-        byYear: [...(allYears ?? [])]
-          .sort((a, b) => a.year.localeCompare(b.year))
-          .map(item => ({ year: item.year, n: item.count })),
+        byMonth: s.byMonth,
         topCvs: s.topCvs,
         byCategory: s.byCategory,
       });

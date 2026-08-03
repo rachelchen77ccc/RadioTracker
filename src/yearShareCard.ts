@@ -17,7 +17,7 @@ const SERIF = 'Georgia, "Songti SC", serif';
 const MONO = '"SF Mono", SFMono-Regular, Menlo, monospace';
 
 type Highlights = {
-  byYear: { year: string; n: number }[];
+  byMonth: { month: number; n: number }[];
   topCvs: { label: string; n: number }[];
   byCategory: { label: string; n: number }[];
 };
@@ -197,17 +197,17 @@ export async function renderYearShareCard(
   });
 
   const rhythmY = 1115;
-  sectionTitle(ctx, rhythmY, '02 / LISTENING RHYTHM', '听剧节奏', 'Each bar marks the dramas completed in one year.');
-  const yearRows = highlights.byYear.length ? highlights.byYear : [{ year: stats.year, n: stats.total }];
-  const maxYear = Math.max(1, ...yearRows.map(d => d.n));
+  sectionTitle(ctx, rhythmY, '02 / LISTENING RHYTHM', '听剧节奏', 'Twelve bars, one for every month of the year.');
+  const monthRows = highlights.byMonth.length ? highlights.byMonth : Array.from({ length: 12 }, (_, i) => ({ month: i + 1, n: 0 }));
+  const maxMonth = Math.max(1, ...monthRows.map(d => d.n));
   const chartX = PAD + 30;
   const chartY = rhythmY + 105;
   const chartW = W - PAD * 2 - 60;
   const chartH = 205;
   const baseline = chartY + chartH;
-  const barGap = Math.max(18, Math.min(42, chartW / (yearRows.length * 2)));
-  const barW = Math.max(36, (chartW - barGap * (yearRows.length - 1)) / yearRows.length);
-  const barsW = barW * yearRows.length + barGap * (yearRows.length - 1);
+  const barGap = 16;
+  const barW = (chartW - barGap * (monthRows.length - 1)) / monthRows.length;
+  const barsW = barW * monthRows.length + barGap * (monthRows.length - 1);
   const startX = chartX + (chartW - barsW) / 2;
   ctx.fillStyle = '#e8ede5';
   ctx.fillRect(chartX, chartY, chartW, chartH);
@@ -218,8 +218,8 @@ export async function renderYearShareCard(
     ctx.beginPath(); ctx.moveTo(chartX, y + .5); ctx.lineTo(chartX + chartW, y + .5); ctx.stroke();
   }
   const accents = [SAGE, BLUE, GOLD, '#879a80', '#89939a'];
-  yearRows.forEach((d, i) => {
-    const height = Math.max(8, (d.n / maxYear) * (chartH - 20));
+  monthRows.forEach((d, i) => {
+    const height = d.n === 0 ? 3 : Math.max(8, (d.n / maxMonth) * (chartH - 20));
     const x = startX + i * (barW + barGap);
     const y = baseline - height;
     ctx.fillStyle = accents[i % accents.length];
@@ -230,7 +230,7 @@ export async function renderYearShareCard(
     ctx.fillText(String(d.n), x + barW / 2, y - 28);
     ctx.fillStyle = MUTED;
     ctx.font = `700 15px ${MONO}`;
-    ctx.fillText(d.year, x + barW / 2, baseline + 20);
+    ctx.fillText(String(d.month).padStart(2, '0'), x + barW / 2, baseline + 20);
     ctx.textAlign = 'left';
   });
 

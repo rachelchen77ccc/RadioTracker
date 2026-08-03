@@ -69,6 +69,29 @@
   --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
 }
 
+.cloud-migration {
+  width: min(680px, calc(100% - 40px));
+  margin: 10vh auto;
+  padding: 44px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  box-shadow: 12px 12px 0 color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.cloud-migration h1 { margin: 12px 0 8px; }
+.cloud-migration > p { color: var(--ink-2); margin-bottom: 28px; }
+.migration-file {
+  display: block;
+  padding: 28px;
+  margin-bottom: 18px;
+  border: 1px dashed var(--ink-2);
+  cursor: pointer;
+  text-align: center;
+}
+.migration-file input { display: none; }
+.migration-success { padding: 20px 0; }
+.migration-success .btn { display: inline-block; margin-top: 10px; text-decoration: none; }
+
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
 

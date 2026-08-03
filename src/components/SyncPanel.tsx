@@ -158,9 +158,9 @@ export function SyncPanel({
               第一次要贴一段登录凭据，之后就只用点「开始同步」。
             </p>
             <p className="warn">
-              这段 cookie 等同于你的猫耳登录态，会明文存在本机
-              <code> data/.missevan-session.json</code>（600 权限、不进版本库）。
-              它会过期，失效时同步会明确报错、不会静默同步出空数据。
+              这段 cookie 等同于你的猫耳登录态。网页部署后会先加密再保存，
+              不会发给其他用户，也不会进入 GitHub。它会过期，失效时同步会明确报错、
+              不会静默同步出空数据。
             </p>
 
             <ol className="sync-steps">

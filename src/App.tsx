@@ -3,6 +3,7 @@ import { NavLink, Route, Routes } from 'react-router-dom';
 import { useFetch } from './api';
 import { DramaDrawer } from './components/DramaDrawer';
 import { SyncPanel } from './components/SyncPanel';
+import { CloudMigration } from './components/CloudMigration';
 import type { Drama, Stats } from './types';
 import {
   Collection, Cv, History, Home, Library, Lists, Purchased, Rewatch,
@@ -52,6 +53,8 @@ const NAV: { label: string; items: NavItem[] }[] = [
 ];
 
 export function App() {
+  if (window.location.pathname === '/cloud-migration') return <CloudMigration />;
+
   const [open, setOpen] = useState<Drama | null>(null);
   const [sync, setSync] = useState(false);
   const [version, setVersion] = useState(0);

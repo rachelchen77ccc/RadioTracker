@@ -17,3 +17,11 @@ tsconfig.tsbuildinfo
 # 猫耳登录态，绝不提交
 data/.missevan-session.json
 data/missevan-lists.json
+
+# 本地迁移包包含个人收听记录和剧评，绝不提交
+data/cloud-migration*.json
+
+# 部署密钥只保留模板
+.env
+.env.*
+!.env.example

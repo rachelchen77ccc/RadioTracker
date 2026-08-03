@@ -9,13 +9,14 @@
     "dev:web": "vite",
     "build": "tsc -b && vite build",
     "start": "NODE_ENV=production node server/index.js",
-    "test": "node --test scripts/episode-total.test.mjs",
+    "test": "node --test scripts/*.test.mjs server/**/*.test.mjs",
     "preview": "vite preview",
     "import:notion": "node scripts/import-notion.mjs",
     "import:missevan": "node scripts/import-missevan.mjs",
     "cache:covers": "node scripts/cache-covers.mjs",
     "fetch:details": "node scripts/fetch-details.mjs",
-    "fetch:lists": "node scripts/fetch-lists.mjs"
+    "fetch:lists": "node scripts/fetch-lists.mjs",
+    "migration:cloud:dry": "node scripts/export-cloud-migration.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",

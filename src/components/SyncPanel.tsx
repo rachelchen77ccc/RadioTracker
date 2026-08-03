@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { appFetch } from '../cloud/supabase';
 
 /**
  * 同步面板。
@@ -41,7 +42,7 @@ export function SyncPanel({
   const doneRef = useRef<string | null>(null);
 
   const loadSession = () =>
-    fetch('/api/sync/session').then(r => r.json()).then(setSession).catch(() => {});
+    appFetch('/api/sync/session').then(r => r.json()).then(setSession).catch(() => {});
 
   useEffect(() => { loadSession(); }, []);
 
@@ -49,7 +50,7 @@ export function SyncPanel({
     let alive = true;
     const tick = async () => {
       try {
-        const j: Job = await fetch('/api/sync/status').then(r => r.json());
+        const j: Job = await appFetch('/api/sync/status').then(r => r.json());
         if (!alive) return;
         setJob(j);
         // 只在「这一轮刚跑完」时刷一次外面的数据，别每次轮询都刷
@@ -77,7 +78,7 @@ export function SyncPanel({
   const saveSession = async () => {
     setBusy(true); setErr(null);
     try {
-      const res = await fetch('/api/sync/session', {
+      const res = await appFetch('/api/sync/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cookie, userId }),
@@ -92,13 +93,13 @@ export function SyncPanel({
   };
 
   const forget = async () => {
-    await fetch('/api/sync/session', { method: 'DELETE' });
+    await appFetch('/api/sync/session', { method: 'DELETE' });
     await loadSession();
   };
 
   const start = async () => {
     setErr(null);
-    const res = await fetch('/api/sync', {
+    const res = await appFetch('/api/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: '{}',

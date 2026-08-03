@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { appFetch } from '../cloud/supabase';
 
 type Result = { dramas: number; cvs: number; links: number; covers: number };
 
@@ -13,7 +14,7 @@ export function CloudMigration() {
     setBusy(true); setError(null);
     try {
       const bundle = JSON.parse(await file.text());
-      const response = await fetch('/api/admin/import', {
+      const response = await appFetch('/api/admin/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bundle }),

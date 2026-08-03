@@ -1,22 +1,41 @@
-# RadioTracker 云端部署与数据迁移
+# RadioTracker：换电脑后部署到 Vercel
 
-目标是让原有本地记录完整保留在第一个账号下，以后每位新用户只看到自己的已购、收藏、收听状态、评分和剧评。
+最终结构：Vercel 提供固定网址、React 页面和 API；Supabase 提供邮箱登录、Postgres 数据库与封面存储。每位用户使用 Supabase 用户 UUID 隔离数据。
 
-## 已完成的部署基础
+## 需要随身带走的私人文件
 
-- 云端数据拆成公共剧目资料与私人用户记录，避免重复抓取资料，也避免用户之间互相看到状态。
-- 所有私人表启用了 Supabase Row Level Security，只允许当前登录用户访问自己的数据。
-- 猫耳 Cookie 只允许服务端读取，使用 AES-256-GCM 加密后再保存；浏览器和其他用户都拿不到明文。
-- 本地 SQLite 迁移工具会生成带校验和的私密迁移包，并明确排除 `.missevan-session.json`。
-- 本地模式保持不变，在云端密钥未配置前仍可照常使用。
+GitHub 只有程序代码，不包含本地数据库、猫耳 Cookie和迁移包。换电脑时请通过移动硬盘、隔空投送或自己的私密云盘带走：
 
-## 一、创建 Supabase 项目
+- `RadioTracker-private-migration.json`：已有 317 部剧、进度、评分和剧评。
+- 如需继续运行本地版，再额外带走 `data/radiotracker.db`。
 
-1. 创建一个 Supabase 项目并记下 Project URL、anon key、service role key 和数据库连接串。
-2. 在 Authentication 中开启邮箱登录；第一阶段只给自己创建账号，确认稳定后再开放注册。
-3. 在 SQL Editor 执行 `supabase/migrations/001_multitenant_foundation.sql`。
-4. 登录一次后，到 Authentication > Users 复制自己的 UUID。
-5. 将该 UUID 作为 `MIGRATION_OWNER_ID`。service role key、数据库密码和加密密钥只能放在部署平台的服务端环境变量中。
+不要把这两个文件提交到 GitHub。38 张本地封面已经在代码仓库中，部署构建时会自动带上。
+
+## 一、准备 Supabase
+
+1. 创建一个新的 Supabase 项目。
+2. 打开 SQL Editor，完整执行 `supabase/migrations/001_multitenant_foundation.sql`。
+3. 在 Authentication 中保留 Email 登录。先完成自己的注册和迁移；如果暂时不准备给别人使用，再关闭公开注册。
+4. 在 Project Settings / API 中取得 Project URL、anon/publishable key、service role key。
+5. 在 Connect 中取得 Postgres pooler 连接串，作为 `DATABASE_URL`。
+
+`service role key` 和数据库连接串只能填写在 Vercel 环境变量里，不能放到任何 `VITE_` 变量，也不能提交 GitHub。
+
+## 二、从 GitHub 导入 Vercel
+
+1. 登录 Vercel，选择 Add New > Project，导入 `rachelchen77ccc/RadioTracker`。
+2. 如果 PR 还没有合并到 `main`，将 Production Branch 暂时选择 `codex/year-report-visual-refresh`；合并后再切回 `main`。
+3. Vercel 会读取 `vercel.json`，执行 `npm run build:vercel`，不需要手填输出目录。
+4. 添加以下环境变量，并勾选 Production、Preview 和 Development：
+
+| 名称 | 值 |
+| --- | --- |
+| `VITE_SUPABASE_URL` | Supabase Project URL |
+| `VITE_SUPABASE_ANON_KEY` | Supabase anon/publishable key |
+| `SUPABASE_URL` | 同一个 Project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key |
+| `DATABASE_URL` | Supabase pooler 连接串 |
+| `CREDENTIAL_ENCRYPTION_KEY` | 32 字节 Base64 随机密钥 |
 
 生成加密密钥：
 
@@ -24,41 +43,34 @@
 openssl rand -base64 32
 ```
 
-## 二、验证并导出本地记录
+5. 点击 Deploy。Vercel 会生成形如 `https://radio-tracker-xxx.vercel.app` 的固定地址。
+6. 将这个地址填写到 Supabase Authentication 的 Site URL 和 Redirect URLs。
 
-先做不上传的本地演练：
+## 三、迁移已有档案
+
+1. 打开部署网址，创建并登录自己的账号。
+2. 访问 `https://你的地址.vercel.app/cloud-migration`。
+3. 选择 `RadioTracker-private-migration.json`，点击“开始迁移”。
+4. 完成后核对：317 部剧、660 位 CV、6,258 条 CV 关联和 38 张本地封面记录。
+
+迁移入口会把数据归属到当前登录账号，不读取迁移包里的占位用户 ID；同一个账号默认只能迁移一次。
+
+## 四、猫耳自动更新
+
+在侧栏点击“自动更新”，第一次粘贴猫耳 Cookie。Cookie 会在 Vercel 服务端使用 AES-256-GCM 加密后存进 Supabase；接口只返回“是否已保存”，不会返回 Cookie 原文。
+
+点击更新后，Vercel Function 会在后台拉取猫耳已购和追剧并比较增加、减少，再补详情。配置的最长执行时间是 300 秒；如果需要补的详情超过 40 部，本次完成后再次点击会继续补齐。
+
+## 五、以后给别人使用
+
+在 Supabase Authentication 打开注册后，把同一个 Vercel 链接发给别人即可。每位新用户注册后从空档案开始，保存自己的猫耳登录信息并同步；数据库查询和写入始终使用其 Supabase 用户 UUID。
+
+## 部署前检查
 
 ```bash
-npm run migration:cloud:dry
+npm install
+npm test
+npm run build:vercel
 ```
 
-默认使用占位用户 UUID，生成 `data/cloud-migration-dry-run.json`。该文件包含私人收听记录和剧评，已被 Git 忽略，不会上传 GitHub；猫耳 Cookie 不在其中。
-
-Supabase 账号创建后，使用真实 UUID 再导出：
-
-```bash
-npm run migration:cloud:dry -- --owner-id YOUR_AUTH_USER_UUID --out data/cloud-migration-owner.json
-```
-
-迁移包会检查剧目、CV、重刷计划和同步记录之间的关联，并为每张本地封面生成校验和与目标 Storage 路径。正式写入 Supabase 前应再次核对输出数量。
-
-## 三、部署 Render
-
-建议创建两个服务：
-
-- Web Service：React 页面和 API，构建命令 `npm ci && npm run build`，启动命令 `npm start`。
-- Background Worker：处理每个用户的猫耳同步任务。点击“自动更新”后 Web Service 只创建任务，Worker 按用户读取加密 Cookie、抓取已购和追剧、写回差异。
-
-Web Service 环境变量以 `.env.example` 为准。`SUPABASE_SERVICE_ROLE_KEY`、`DATABASE_URL`、`CREDENTIAL_ENCRYPTION_KEY` 不能出现在任何 `VITE_` 变量里。
-
-## 四、正式切换顺序
-
-1. 云端先保持私有，只允许自己的账号。
-2. 导入本地迁移包，核对总数、已购、收藏、状态、进度、评分、剧评和封面。
-3. 将同步 API 改为按登录用户创建后台任务，连续测试增加与减少两种变化。
-4. 做一次数据库备份并保留原始 `data/radiotracker.db` 的离线副本。
-5. 最后才开放新用户注册。新用户登录后从空的私人记录开始，通过猫耳同步建立自己的已购和收藏。
-
-## 尚未启用的部分
-
-当前提交是安全迁移基础，不会擅自把本地数据上传到第三方。完成 Supabase 项目创建并拿到自己的用户 UUID 后，下一阶段才会接入登录页面、云端 API、正式导入和 Render 后台同步 Worker。
+构建会把 GitHub 中的 38 张本地封面复制到 Vercel 静态资源目录。数据库、迁移包、环境变量和猫耳登录信息都不会进入部署源码。

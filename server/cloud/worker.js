@@ -20,7 +20,8 @@ const empty = (status = 204) => new Response(null, { status });
 const now = () => new Date().toISOString();
 const placeholders = count => Array.from({ length: count }, () => '?').join(',');
 
-function currentUser(request, env) {
+async function currentUser(request, env) {
+  if (typeof env.resolveUser === 'function') return env.resolveUser(request);
   if (String(env.PRIVATE_OWNER_MODE) === 'true') return 'owner:primary';
   return request.headers.get('oai-authenticated-user-email')?.trim().toLowerCase() || null;
 }
@@ -38,13 +39,13 @@ async function run(env, sql, params = []) {
   return env.DB.prepare(sql).bind(...params).run();
 }
 
-function shape(row) {
+function shape(row, env) {
   if (!row) return row;
   let categories = [];
   try { categories = JSON.parse(row.categories || '[]'); } catch { categories = []; }
   const localCover = row.cover_local
     ? row.cover_local.startsWith('r2:')
-      ? `/api/dramas/${row.id}/cover-file`
+      ? (env.COVERS.publicUrl?.(row.cover_local.slice(3)) || `/api/dramas/${row.id}/cover-file`)
       : `/covers/${encodeURIComponent(row.cover_local)}`
     : null;
   return {
@@ -69,7 +70,7 @@ async function withCvs(env, userId, rows) {
   `, [userId, ...ids]);
   const map = new Map(ids.map(id => [id, []]));
   for (const cv of cvs) map.get(Number(cv.drama_id))?.push(cv);
-  return rows.map(row => ({ ...shape(row), cvs: map.get(Number(row.id)) || [] }));
+  return rows.map(row => ({ ...shape(row, env), cvs: map.get(Number(row.id)) || [] }));
 }
 
 async function list(env, userId, sql, params = []) {
@@ -781,7 +782,7 @@ const worker = {
       if (url.pathname === '/api/health') return json({ ok: true, storage: 'd1', mode: String(env.PRIVATE_OWNER_MODE) === 'true' ? 'private-owner' : 'multi-user' });
       if (url.pathname === '/api/cover' && request.method === 'GET') return handleCoverProxy(env, url);
       if (url.pathname.startsWith('/api/')) {
-        const userId = currentUser(request, env);
+        const userId = await currentUser(request, env);
         if (!userId) return json({ error: '请先登录', signInUrl: `/signin-with-chatgpt?return_to=${encodeURIComponent(url.pathname + url.search)}` }, 401);
         if (url.pathname === '/api/admin/import' && request.method === 'POST') {
           try { return json(await importBundle(env, userId, await request.json()), 201); }

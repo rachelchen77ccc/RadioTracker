@@ -92,6 +92,32 @@
 .migration-success { padding: 20px 0; }
 .migration-success .btn { display: inline-block; margin-top: 10px; text-decoration: none; }
 
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    linear-gradient(90deg, transparent 49.8%, color-mix(in srgb, var(--ink) 7%, transparent) 50%, transparent 50.2%),
+    var(--paper-2);
+}
+.auth-card {
+  width: min(440px, 100%);
+  padding: 42px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  box-shadow: 12px 12px 0 color-mix(in srgb, var(--ink) 9%, transparent);
+}
+.auth-card h1 { margin: 14px 0 8px; font-size: clamp(32px, 8vw, 52px); }
+.auth-card > p { color: var(--ink-2); line-height: 1.7; margin-bottom: 24px; }
+.auth-card form { display: grid; gap: 14px; }
+.auth-card label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
+.auth-card .input { width: 100%; }
+.auth-switch { margin-top: 18px; }
+.auth-message { margin-top: 16px; padding: 10px 12px; background: var(--paper-2); }
+.auth-loading { min-height: 100vh; display: grid; place-items: center; }
+.signout { margin: auto 18px 18px; align-self: flex-start; }
+
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
 

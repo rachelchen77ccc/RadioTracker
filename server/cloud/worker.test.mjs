@@ -19,7 +19,28 @@ class D1Statement {
 function testEnv() {
   const sqlite = new Database(':memory:');
   sqlite.pragma('foreign_keys = ON');
-  sqlite.exec(fs.readFileSync(new URL('../../drizzle/0000_cloud_schema.sql', import.meta.url), 'utf8'));
+  sqlite.exec(fs.readFileSync(new URL('../schema.sql', import.meta.url), 'utf8'));
+  sqlite.exec(`
+    ALTER TABLE dramas ADD COLUMN user_id TEXT;
+    ALTER TABLE dramas ADD COLUMN bought_order INTEGER;
+    ALTER TABLE dramas ADD COLUMN sub_order INTEGER;
+    ALTER TABLE dramas ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE dramas ADD COLUMN detail_error TEXT;
+    ALTER TABLE dramas ADD COLUMN detail_fetched_at TEXT;
+    ALTER TABLE cvs ADD COLUMN user_id TEXT;
+    ALTER TABLE sync_log ADD COLUMN user_id TEXT;
+    CREATE UNIQUE INDEX cvs_user_name_test_idx ON cvs(user_id, name);
+    CREATE UNIQUE INDEX dramas_user_missevan_test_idx ON dramas(user_id, missevan_id);
+    CREATE TABLE user_missevan_credentials (
+      user_id TEXT PRIMARY KEY, missevan_user_id TEXT, credential_ciphertext TEXT,
+      credential_iv TEXT, saved_at TEXT
+    );
+    CREATE TABLE sync_jobs (
+      user_id TEXT PRIMARY KEY, running INTEGER DEFAULT 0, step TEXT, log TEXT DEFAULT '[]',
+      error TEXT, expired INTEGER DEFAULT 0, started_at TEXT, finished_at TEXT
+    );
+    CREATE TABLE migration_state (user_id TEXT PRIMARY KEY, completed_at TEXT, source_checksum TEXT);
+  `);
   const objects = new Map();
   return {
     DB: {
@@ -74,8 +95,9 @@ test('云端迁移后能读取完整剧目，并按登录用户隔离', async ()
   const imported = await worker.fetch(apiRequest('/api/admin/import', 'owner@example.com', {
     method: 'POST', body: JSON.stringify({ bundle }),
   }), env, ctx);
-  assert.equal(imported.status, 201);
-  assert.equal((await imported.json()).dramas, 1);
+  const importedPayload = await imported.json();
+  assert.equal(imported.status, 201, JSON.stringify(importedPayload));
+  assert.equal(importedPayload.dramas, 1);
 
   const ownerStats = await worker.fetch(apiRequest('/api/stats', 'owner@example.com'), env, ctx);
   assert.equal((await ownerStats.json()).total, 1);

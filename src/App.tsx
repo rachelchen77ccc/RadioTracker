@@ -151,6 +151,7 @@ export function App() {
           drama={open}
           onClose={() => setOpen(null)}
           onSaved={d => { setOpen(d); bump(); }}
+          onDeleted={() => { setOpen(null); bump(); }}
         />
       )}
     </div>

@@ -261,6 +261,7 @@ section.folder[data-tone="5"] { --f: var(--f-lilac); --tab-w: 196px; }
 
 .card {
   position: relative;
+  cursor: pointer;
   background: var(--paper);
   border: none; border-radius: 2px;
   padding: 0; text-align: left; color: inherit;
@@ -811,6 +812,16 @@ section.folder[data-tone="5"] { --f: var(--f-lilac); --tab-w: 196px; }
 .gallery.mark .status-picker button:nth-child(5) { --sc: var(--s-搁置); }
 .gallery.mark .status-picker button:nth-child(6) { --sc: var(--s-弃了); }
 .gallery.mark .status-picker button:hover { border-color: var(--sc); color: var(--sc); }
+
+.btn.danger {
+  border-color: #a24a4a;
+  color: #8a3030;
+}
+.btn.danger:hover:not(:disabled) {
+  background: #8a3030;
+  border-color: #8a3030;
+  color: #fff;
+}
 
 /* 工具条里把状态筛选和排序控件推开的空隙 */
 .toolbar .tb-gap { flex: 1 1 20px; min-width: 12px; }

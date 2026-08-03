@@ -7,14 +7,21 @@ import path from 'node:path';
 import { openDb, COVER_DIR, ROOT as ROOT_DIR } from './db.js';
 
 const db = openDb();
+// 「听完」的剧在任何页面都应该显示完整进度；旧数据也在启动时一次补齐。
+db.prepare(`
+  UPDATE dramas SET heard_episodes = total_episodes
+  WHERE status = '听完' AND total_episodes IS NOT NULL
+    AND (heard_episodes IS NULL OR heard_episodes <> total_episodes)
+`).run();
 const app = express();
 app.use(cors());
 // 封面上传走 dataURL（客户端已裁成 640×640），默认 100kb 限额不够
 app.use(express.json({ limit: '12mb' }));
 app.use('/covers', express.static(COVER_DIR));
 
-// 刻意不读 PORT：dev 工具会把 PORT 设成 vite 的端口，两边会撞。
-const PORT = process.env.API_PORT || 5174;
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+// 开发时刻意不读 PORT（它可能是 Vite 的端口）；部署平台则统一使用 PORT。
+const PORT = process.env.API_PORT || (IS_PRODUCTION ? process.env.PORT : null) || 5174;
 
 /** 把 DB 行整成前端友好的形状 */
 const shape = r => r && ({
@@ -264,7 +271,7 @@ app.post('/api/sync', express.json({ limit: '32mb' }), async (req, res) => {
 app.get('/api/dramas', (req, res) => {
   const {
     status, platform, kind, cv, q, purchased, subscribed,
-    category, organization, year, rating_min, serialize, sort = 'updated',
+    category, organization, year, rating_min, serialize, sort = 'purchased',
   } = req.query;
   const where = [];
   const args = [];
@@ -292,6 +299,7 @@ app.get('/api/dramas', (req, res) => {
     args.push(cv);
   }
   const order = {
+    purchased: 'd.bought_order IS NULL, d.bought_order, d.updated_at DESC, d.title',
     updated: 'd.updated_at DESC',
     rating: 'd.rating DESC NULLS LAST, d.title',
     finished: 'd.finished_date DESC NULLS LAST',
@@ -327,6 +335,10 @@ app.get('/api/dramas/:id', (req, res) => {
 app.post('/api/dramas', (req, res) => {
   const b = req.body ?? {};
   if (!b.title?.trim()) return res.status(400).json({ error: '剧名不能为空' });
+  const totalEpisodes = b.total_episodes ?? null;
+  const heardEpisodes = b.status === '听完' && totalEpisodes != null
+    ? totalEpisodes
+    : b.heard_episodes ?? null;
   const info = db.prepare(`
     INSERT INTO dramas (title, platform, source, kind, categories, cover_url,
                         status, purchased, heard_episodes, total_episodes, rating,
@@ -344,8 +356,8 @@ app.post('/api/dramas', (req, res) => {
     cover_url: b.cover_url ?? null,
     status: b.status ?? null,
     purchased: b.purchased ? 1 : 0,
-    heard_episodes: b.heard_episodes ?? null,
-    total_episodes: b.total_episodes ?? null,
+    heard_episodes: heardEpisodes,
+    total_episodes: totalEpisodes,
     rating: b.rating ?? null,
     finished_date: b.finished_date ?? null,
     rewatch_status: b.rewatch_status ?? null,
@@ -397,6 +409,13 @@ app.patch('/api/dramas/bulk', (req, res) => {
     `UPDATE dramas SET ${sets.join(', ')} WHERE id IN (${ids.map(() => '?').join(',')})`
   );
   const info = stmt.run(...vals, ...ids.map(Number));
+  if (status === '听完') {
+    db.prepare(`
+      UPDATE dramas SET heard_episodes = total_episodes
+      WHERE total_episodes IS NOT NULL
+        AND id IN (${ids.map(() => '?').join(',')})
+    `).run(...ids.map(Number));
+  }
   res.json({ updated: info.changes });
 });
 
@@ -427,6 +446,11 @@ app.patch('/api/dramas/:id', (req, res) => {
       .run({ ...args, id: Number(req.params.id) });
   }
   if (Array.isArray(b.cvNames)) setCvNames(Number(req.params.id), b.cvNames);
+  // 选「听完」或修改一部已听完剧的总集数时，进度始终跟着拉满。
+  db.prepare(`
+    UPDATE dramas SET heard_episodes = total_episodes
+    WHERE id = ? AND status = '听完' AND total_episodes IS NOT NULL
+  `).run(Number(req.params.id));
   const row = db.prepare('SELECT * FROM dramas WHERE id = ?').get(req.params.id);
   res.json(withCvs([row])[0]);
 });
@@ -475,7 +499,13 @@ app.post('/api/dramas/:id/cover', (req, res) => {
 });
 
 app.delete('/api/dramas/:id', (req, res) => {
+  const row = db.prepare('SELECT cover_local FROM dramas WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: '没找到这部剧' });
   db.prepare('DELETE FROM dramas WHERE id = ?').run(req.params.id);
+  // 只清理站内生成的自定义封面；同步/导入的原图可能仍被别的记录使用。
+  if (row.cover_local?.startsWith('custom-')) {
+    try { fs.unlinkSync(path.join(COVER_DIR, row.cover_local)); } catch {}
+  }
   res.status(204).end();
 });
 
@@ -819,5 +849,19 @@ app.get('/api/sync-log', (_req, res) => {
   res.json(db.prepare('SELECT * FROM sync_log ORDER BY id DESC LIMIT 20').all()
     .map(r => ({ ...r, detail: JSON.parse(r.detail || '[]') })));
 });
+
+// 生产环境由同一个服务同时提供前端和 API，部署时只需要暴露一个端口。
+if (IS_PRODUCTION) {
+  const dist = path.join(ROOT_DIR, 'dist');
+  const index = path.join(dist, 'index.html');
+  if (!fs.existsSync(index)) {
+    throw new Error('缺少 dist/index.html，请先运行 npm run build');
+  }
+  app.use(express.static(dist));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/covers/')) return next();
+    res.sendFile(index);
+  });
+}
 
 app.listen(PORT, () => console.log(`RadioTracker API → http://localhost:${PORT}`));

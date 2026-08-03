@@ -1,4 +1,6 @@
-import type { Drama } from '../types';
+import { useEffect, useState, type MouseEvent } from 'react';
+import { api } from '../api';
+import { STATUSES, type Drama } from '../types';
 
 const PLATFORM: Record<string, string> = { 猫耳: 'MEV', 漫播: 'MBO', 其他: 'ETC' };
 
@@ -21,46 +23,74 @@ export function Tape({ heard, total }: { heard: number | null; total: number | n
 }
 
 export function DramaCard({ drama, onOpen }: { drama: Drama; onOpen: (d: Drama) => void }) {
-  const main = drama.cvs.filter(c => c.role_type === '主役');
+  const [current, setCurrent] = useState(drama);
+  const [marking, setMarking] = useState(false);
+  useEffect(() => { setCurrent(drama); }, [drama]);
+  const main = current.cvs.filter(c => c.role_type === '主役');
+
+  const mark = async (e: MouseEvent<HTMLButtonElement>, status: Drama['status']) => {
+    e.stopPropagation();
+    setMarking(true);
+    try {
+      setCurrent(await api.update(current.id, { status }));
+    } catch (err) {
+      alert('状态保存失败：' + String((err as Error).message ?? err));
+    } finally {
+      setMarking(false);
+    }
+  };
 
   return (
-    <button
-      className={'card' + (drama.rewatch_queued ? ' rewatching' : '')}
+    <article
+      className={'card' + (current.rewatch_queued ? ' rewatching' : '')}
       /* 卡片底色跟着收听状态走，见 styles.css 里的 .card[data-status] */
-      data-status={drama.status ?? undefined}
-      onClick={() => onOpen(drama)}
-      title={drama.title}
+      data-status={current.status ?? undefined}
+      onClick={() => onOpen(current)}
+      onKeyDown={e => {
+        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) onOpen(current);
+      }}
+      role="button"
+      tabIndex={0}
+      title={current.title}
     >
       <div className="cover">
-        {drama.cover
-          ? <img src={drama.cover} alt="" loading="lazy" />
+        {current.cover
+          ? <img src={current.cover} alt="" loading="lazy" />
           : <div className="placeholder">NO COVER</div>}
         {/* 真实元素，不用 ::after —— 那个位置被状态色条占了 */}
-        {drama.rewatch_queued && <span className="rewatch-flag">重刷</span>}
+        {current.rewatch_queued && <span className="rewatch-flag">重刷</span>}
       </div>
 
       <div className="filerow">
-        <span>{PLATFORM[drama.platform] ?? 'ETC'}</span>
+        <span>{PLATFORM[current.platform] ?? 'ETC'}</span>
         <span>·</span>
-        <span>{String(drama.id).padStart(3, '0')}</span>
-        {drama.rating != null && <span className="score">{drama.rating.toFixed(1)}</span>}
+        <span>{String(current.id).padStart(3, '0')}</span>
+        {current.rating != null && <span className="score">{current.rating.toFixed(1)}</span>}
       </div>
 
       <div className="body">
         <div className="title">
-          {drama.title}
-          {drama.status && <span className={`tag s-${drama.status}`}>{drama.status}</span>}
+          {current.title}
+          {current.status && <span className={`tag s-${current.status}`}>{current.status}</span>}
         </div>
         {main.length > 0 && <div className="cv">{main.map(c => c.name).join(' · ')}</div>}
 
-        <Tape heard={drama.heard_episodes} total={drama.total_episodes} />
+        <Tape heard={current.heard_episodes} total={current.total_episodes} />
+
+        {!current.status && (
+          <div className="status-picker" aria-label="选择收听状态" onClick={e => e.stopPropagation()}>
+            {STATUSES.map(s => (
+              <button key={s} type="button" disabled={marking} onClick={e => mark(e, s)}>{s}</button>
+            ))}
+          </div>
+        )}
 
         <div className="meta">
-          {!drama.purchased && <span className="badge ghost">未购</span>}
-          {drama.review && <span className="badge ghost">REPO</span>}
+          {!current.purchased && <span className="badge ghost">未购</span>}
+          {current.review && <span className="badge ghost">REPO</span>}
         </div>
       </div>
-    </button>
+    </article>
   );
 }
 

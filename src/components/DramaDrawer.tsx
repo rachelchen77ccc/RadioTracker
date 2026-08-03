@@ -40,9 +40,12 @@ function cropToSquare(file: File): Promise<string> {
 }
 
 export function DramaDrawer({
-  drama, onClose, onSaved,
+  drama, onClose, onSaved, onDeleted,
 }: {
-  drama: Drama; onClose: () => void; onSaved: (d: Drama) => void;
+  drama: Drama;
+  onClose: () => void;
+  onSaved: (d: Drama) => void;
+  onDeleted: () => void;
 }) {
   const [d, setD] = useState(drama);
   const [saving, setSaving] = useState(false);
@@ -91,7 +94,14 @@ export function DramaDrawer({
   };
 
   const set = <K extends keyof Drama>(k: K, v: Drama[K]) => {
-    setD(prev => ({ ...prev, [k]: v }));
+    setD(prev => {
+      const next = { ...prev, [k]: v } as Drama;
+      // 选听完、或修改听完剧的总集数时，界面也立刻显示满进度。
+      if (next.status === '听完' && (k === 'status' || k === 'total_episodes')) {
+        next.heard_episodes = next.total_episodes;
+      }
+      return next;
+    });
     // CV 是关系表，要转成后端认的 cvNames
     if (k === 'cvs') {
       pending.current.cvNames = (v as Drama['cvs'])
@@ -133,6 +143,20 @@ export function DramaDrawer({
     } catch (e) {
       alert('生成失败：' + String((e as Error).message ?? e));
     } finally {
+      setBusy(null);
+    }
+  };
+
+  const remove = async () => {
+    if (!window.confirm(`确定删除「${d.title}」吗？删除后会从所有页面移除。`)) return;
+    if (timer.current) clearTimeout(timer.current);
+    pending.current = {};
+    setBusy('delete');
+    try {
+      await api.remove(d.id);
+      onDeleted();
+    } catch (e) {
+      alert('删除失败：' + String((e as Error).message ?? e));
       setBusy(null);
     }
   };
@@ -230,6 +254,8 @@ export function DramaDrawer({
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <input
               className="input" type="number" min={0} style={{ width: 68 }}
+              disabled={d.status === '听完'}
+              title={d.status === '听完' ? '听完的剧会自动拉满进度' : undefined}
               value={d.heard_episodes ?? ''}
               onChange={e => set('heard_episodes', numOrNull(e.target.value))}
             />
@@ -362,6 +388,13 @@ export function DramaDrawer({
           </span>
           <button className="btn" onClick={makeShare} disabled={busy === 'share'}>
             {busy === 'share' ? '生成中' : '生成分享长图'}
+          </button>
+          <button
+            className="btn danger"
+            onClick={remove}
+            disabled={saving || busy === 'delete'}
+          >
+            {busy === 'delete' ? '删除中' : '删除这部剧'}
           </button>
           {d.synced_at && (
             <span className="mono" style={{ marginLeft: 'auto', textTransform: 'none' }}>

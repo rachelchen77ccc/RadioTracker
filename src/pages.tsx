@@ -403,7 +403,7 @@ export function Library({
   onOpen, version, onChanged,
 }: P & { onChanged: () => void }) {
   const [q, setQ] = useState('');
-  const [sort, setSort] = useState('updated');
+  const [sort, setSort] = useState('purchased');
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -454,7 +454,8 @@ export function Library({
           value={q} onChange={e => setQ(e.target.value)}
         />
         <select className="select" value={sort} onChange={e => setSort(e.target.value)}>
-          <option value="updated">最近更新</option>
+          <option value="purchased">最新购入</option>
+          <option value="updated">最近修改</option>
           <option value="rating">评分</option>
           <option value="finished">听完日期</option>
           <option value="title">剧名</option>

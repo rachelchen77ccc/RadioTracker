@@ -275,11 +275,24 @@ node scripts/migrate-003-order.mjs   # 听完的剧拉满进度、加三个排�
 
 ## 部署
 
-现在是纯本地。要上线的话：前端 `npm run build` 出静态包；后端把 `better-sqlite3`
-换成托管 Postgres（API 形状不用动）。
+这是一个网页应用，只是目前运行在本机。个人使用推荐先通过 Tailscale Serve
+安全地开放给自己的手机和电脑，数据库、封面和猫耳登录态仍留在本机：
 
-**同步不要上云**：猫耳导出脚本设计成在你本地浏览器跑、结果导入本地库。
-如果之后要部署，建议保持「本地同步 → 只推非敏感字段」，别让登录态和购买记录进服务器。
+```bash
+npm run build
+npm start
+
+# 另开一个终端；首次会提示登录并启用 HTTPS
+tailscale serve --bg 5174
+tailscale serve status
+```
+
+同一 Tailscale 网络里的设备打开命令输出的 `https://…ts.net` 地址即可。
+Mac 需要保持开机，RadioTracker 服务也需要保持运行。
+
+如果以后要做成 24 小时在线的云端版本，再部署到 Render / Fly.io：SQLite、
+`data/covers` 和 `.missevan-session.json` 必须放在持久磁盘上，并且要先给网页加登录保护。
+当前接口包含编辑、删除和猫耳同步，不能直接作为公开无密码网站暴露到互联网。
 
 ## 端口
 

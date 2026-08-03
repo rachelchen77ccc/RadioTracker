@@ -22,6 +22,7 @@
  * 缺了不影响任何东西 —— 它本来就只是个灰色提示。
  */
 import { openDb } from '../server/db.js';
+import { resolveEpisodeTotal } from './episode-total.mjs';
 
 const ALL = process.argv.includes('--all');
 const db = openDb();
@@ -101,6 +102,7 @@ const fillCompletedProgress = db.prepare(`
   UPDATE dramas SET heard_episodes = total_episodes
   WHERE id = ? AND status = '听完' AND total_episodes IS NOT NULL
 `);
+const getTotal = db.prepare('SELECT total_episodes FROM dramas WHERE id = ?');
 
 const markError = db.prepare(
   `UPDATE dramas SET detail_error = ? WHERE id = ?`
@@ -133,7 +135,7 @@ function parseUpdateDay(abstractHtml) {
 
 let ok = 0, cvLinks = 0, days = 0;
 const failed = [];
-const grew = [];   // 集数变多了的剧 —— 这是你每次同步最想看到的
+const totalChanges = [];
 
 for (const [i, t] of targets.entries()) {
   let info;
@@ -160,6 +162,12 @@ for (const [i, t] of targets.entries()) {
   if (!info) continue;
 
   const d = info.drama ?? {};
+  const episodeNames = (info.episodes?.episode ?? []).map(e => e.name).filter(Boolean);
+  const episodeTotal = resolveEpisodeTotal({
+    abstract: d.abstract,
+    newest: d.newest,
+    episodeNames,
+  });
   const serialize_status =
     String(d.integrity) === '1' ? '已完结' : String(d.integrity) === '2' ? '连载中' : null;
 
@@ -173,12 +181,19 @@ for (const [i, t] of targets.entries()) {
     organization: d.organization?.name ?? null,
     abstract: d.abstract || null,
     cover_url: d.cover || null,
-    total_episodes: (info.episodes?.episode ?? []).length || null,
+    total_episodes: episodeTotal.total,
     price: d.price ?? null,
     serialize_status,
     update_info: d.newest || null,
   });
   fillCompletedProgress.run(t.id);
+  const effectiveTotal = getTotal.get(t.id)?.total_episodes ?? null;
+  if (effectiveTotal != null && effectiveTotal !== t.total_episodes) {
+    totalChanges.push({
+      title: t.title, from: t.total_episodes, to: effectiveTotal,
+      newest: d.newest, source: episodeTotal.source,
+    });
+  }
 
   // Notion 带来的主役是你自己挑的，不动；猫耳的一律只补配役。
   // 完全没有主役记录的（猫耳新同步进来的剧）才用「前两位是主役」的约定。
@@ -195,10 +210,6 @@ for (const [i, t] of targets.entries()) {
   }
 
   ok++;
-  const now = (info.episodes?.episode ?? []).length || null;
-  if (now && t.total_episodes && now > t.total_episodes) {
-    grew.push({ title: t.title, from: t.total_episodes, to: now, newest: d.newest });
-  }
   if (parseUpdateDay(d.abstract)) days++;
   if (i % 25 === 24) process.stdout.write(`  ${i + 1}/${targets.length}\r`);
   await sleep(250);
@@ -206,13 +217,16 @@ for (const [i, t] of targets.entries()) {
 
 console.log(`\n详情补齐：刷新 ${ok} 部 · 新建 CV 关联 ${cvLinks} 条 · 回填更新日 ${days} 部 · 失败 ${failed.length}`);
 
-if (grew.length) {
-  console.log(`\n📻 有新集（${grew.length} 部）：`);
-  for (const g of grew) {
-    console.log(`   ${g.title}  ${g.from} → ${g.to} 集${g.newest ? `，更新至「${g.newest}」` : ''}`);
+if (totalChanges.length) {
+  console.log(`\n📻 总集数调整（${totalChanges.length} 部）：`);
+  for (const g of totalChanges) {
+    console.log(
+      `   ${g.title}  ${g.from} → ${g.to} 集（${g.source}）` +
+      (g.newest ? `，更新至「${g.newest}」` : '')
+    );
   }
 } else {
-  console.log('\n没有剧更新新集。');
+  console.log('\n总集数没有变化。');
 }
 
 if (failed.length) {

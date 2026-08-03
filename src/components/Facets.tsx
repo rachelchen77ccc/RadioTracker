@@ -18,6 +18,11 @@ const GROUPS: { key: string; label: string; limit: number }[] = [
   { key: 'year',     label: '听完年份', limit: 8 },
 ];
 
+const DEFAULT_FOLDED: Record<string, boolean> = Object.fromEntries([
+  ...GROUPS.map(g => [g.key, true] as const),
+  ['rating', true] as const,
+]);
+
 /** facet key → /api/dramas 的查询参数名 */
 const PARAM: Record<string, string> = {
   status: 'status', platform: 'platform', kind: 'kind', serialize: 'serialize',
@@ -35,11 +40,15 @@ export function Facets({
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   /**
    * 每个筛选组自己折叠：点组标题把这一组收上去。
-   * 记在 localStorage —— 你嫌「主役 CV」占地方收起来之后，翻页回来还是收着的。
+   * 记在 localStorage —— 某组手动展开或收起之后，翻页回来仍保留这个选择。
    */
   const [folded, setFolded] = useState<Record<string, boolean>>(() => {
-    try { return JSON.parse(localStorage.getItem('facets:folded') ?? '{}'); }
-    catch { return {}; }
+    try {
+      const saved = JSON.parse(localStorage.getItem('facets:folded') ?? '{}');
+      return { ...DEFAULT_FOLDED, ...saved };
+    } catch {
+      return DEFAULT_FOLDED;
+    }
   });
 
   const fold = (key: string) => {

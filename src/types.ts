@@ -95,3 +95,11 @@ export interface YearStats {
   topCvs: { label: string; n: number }[];
   topRated: { label: string; n: number }[];
 }
+
+export interface YearShareData {
+  year: string;
+  total: number;
+  episodes: number;
+  avgRating: number | null;
+  reviews: number;
+}

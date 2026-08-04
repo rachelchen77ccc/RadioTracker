@@ -10,7 +10,8 @@ data/covers/remote/
 # 猫耳导出里含账号相关信息，不要提交
 data/missevan-export.json
 
-notion-export/unpacked/
+# Notion 原始导出包含私人记录，只保留在本机
+notion-export/
 .DS_Store
 tsconfig.tsbuildinfo
 

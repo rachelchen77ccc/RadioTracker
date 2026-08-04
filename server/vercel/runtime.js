@@ -7,9 +7,17 @@ function requireEnv(name) {
   return value;
 }
 
-function createCoverStore(supabase) {
+function requireAnyEnv(...names) {
+  for (const name of names) {
+    const value = process.env[name]?.trim();
+    if (value) return value;
+  }
+  throw new Error(`缺少环境变量 ${names.join(' 或 ')}`);
+}
+
+function createCoverStore(supabase, supabaseUrl) {
   const bucket = supabase.storage.from('drama-covers');
-  const publicBase = `${requireEnv('SUPABASE_URL')}/storage/v1/object/public/drama-covers/`;
+  const publicBase = `${supabaseUrl}/storage/v1/object/public/drama-covers/`;
   return {
     async get(key) {
       const { data, error } = await bucket.download(key);
@@ -35,14 +43,14 @@ let cached;
 
 export function createVercelEnv() {
   if (cached) return cached;
-  const supabaseUrl = requireEnv('SUPABASE_URL');
-  const serviceRoleKey = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
+  const supabaseUrl = requireAnyEnv('SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL');
+  const serviceRoleKey = requireAnyEnv('SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_SECRET_KEY');
   const supabase = createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   cached = {
-    DB: createPostgresD1(requireEnv('DATABASE_URL')),
-    COVERS: createCoverStore(supabase),
+    DB: createPostgresD1(requireAnyEnv('DATABASE_URL', 'POSTGRES_URL')),
+    COVERS: createCoverStore(supabase, supabaseUrl),
     CREDENTIAL_ENCRYPTION_KEY: requireEnv('CREDENTIAL_ENCRYPTION_KEY'),
     PRIVATE_OWNER_MODE: 'false',
     async resolveUser(request) {

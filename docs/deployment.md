@@ -11,30 +11,24 @@ GitHub 只有程序代码，不包含本地数据库、猫耳 Cookie和迁移包
 
 不要把这两个文件提交到 GitHub。38 张本地封面已经在代码仓库中，部署构建时会自动带上。
 
-## 一、准备 Supabase
+## 一、在 Vercel 中创建 Supabase
 
-1. 创建一个新的 Supabase 项目。
-2. 打开 SQL Editor，完整执行 `supabase/migrations/001_multitenant_foundation.sql`。
+1. 打开 Vercel 项目的 Storage，选择 Create Database > Supabase，并关联当前项目。Vercel 会自动创建 Supabase 项目并同步数据库、认证和服务端密钥。
+2. 从 Vercel 的 Storage 页面进入 Supabase Studio，打开 SQL Editor，完整执行 `supabase/migrations/001_multitenant_foundation.sql`。
 3. 在 Authentication 中保留 Email 登录。先完成自己的注册和迁移；如果暂时不准备给别人使用，再关闭公开注册。
-4. 在 Project Settings / API 中取得 Project URL、anon/publishable key、service role key。
-5. 在 Connect 中取得 Postgres pooler 连接串，作为 `DATABASE_URL`。
+4. Marketplace 会自动提供 `SUPABASE_URL`、`SUPABASE_SECRET_KEY`、`POSTGRES_URL`、`NEXT_PUBLIC_SUPABASE_URL` 和 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`，无需复制这些密钥。
 
-`service role key` 和数据库连接串只能填写在 Vercel 环境变量里，不能放到任何 `VITE_` 变量，也不能提交 GitHub。
+密钥只能保存在 Vercel 环境变量里，不能提交 GitHub。
 
 ## 二、从 GitHub 导入 Vercel
 
 1. 登录 Vercel，选择 Add New > Project，导入 `rachelchen77ccc/RadioTracker`。
 2. 如果 PR 还没有合并到 `main`，将 Production Branch 暂时选择 `codex/year-report-visual-refresh`；合并后再切回 `main`。
 3. Vercel 会读取 `vercel.json`，执行 `npm run build:vercel`，不需要手填输出目录。
-4. 添加以下环境变量，并勾选 Production、Preview 和 Development：
+4. Supabase Marketplace 变量会自动同步；只需额外添加下面这一项，并勾选 Production、Preview 和 Development：
 
 | 名称 | 值 |
 | --- | --- |
-| `VITE_SUPABASE_URL` | Supabase Project URL |
-| `VITE_SUPABASE_ANON_KEY` | Supabase anon/publishable key |
-| `SUPABASE_URL` | 同一个 Project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key |
-| `DATABASE_URL` | Supabase pooler 连接串 |
 | `CREDENTIAL_ENCRYPTION_KEY` | 32 字节 Base64 随机密钥 |
 
 生成加密密钥：

@@ -53,6 +53,28 @@ export function AuthGate({ children }: { children: ReactNode }) {
     }
   };
 
+  const resendConfirmation = async () => {
+    if (!supabase) return;
+    if (!email.trim()) {
+      setMessage('请先填写注册时使用的邮箱。');
+      return;
+    }
+    setBusy(true); setMessage(null);
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email.trim(),
+        options: { emailRedirectTo },
+      });
+      if (error) throw error;
+      setMessage('确认邮件已重新发送，请使用新邮件中的链接。');
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : '确认邮件发送失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="auth-shell">
       <div className="auth-card">
@@ -67,6 +89,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
         <button className="linkish auth-switch" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setMessage(null); }}>
           {mode === 'login' ? '第一次使用？创建账号' : '已经有账号？返回登录'}
         </button>
+        {mode === 'login' && (
+          <button className="linkish auth-switch" disabled={busy} onClick={resendConfirmation}>
+            账号还没确认？重新发送确认邮件
+          </button>
+        )}
         {message && <div className="auth-message">{message}</div>}
       </div>
     </div>

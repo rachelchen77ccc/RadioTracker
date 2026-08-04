@@ -6,6 +6,7 @@ import { SyncPanel } from './components/SyncPanel';
 import { CloudMigration } from './components/CloudMigration';
 import { SignOutButton } from './components/AuthGate';
 import { appFetch } from './cloud/supabase';
+import { pendingMissevanCookie } from './cloud/missevanConnect';
 import type { Drama, Stats } from './types';
 import {
   Collection, Cv, History, Home, Library, Lists, Purchased, Rewatch,
@@ -64,6 +65,7 @@ export function App() {
   const [version, setVersion] = useState(0);
   const { data: stats } = useFetch<Stats>('/api/stats', [version]);
   const onboardingOpened = useRef(false);
+  const incomingMissevanConnect = useRef(Boolean(pendingMissevanCookie()));
 
   const bump = () => setVersion(v => v + 1);
   let no = 0;
@@ -79,9 +81,9 @@ export function App() {
 
   useEffect(() => {
     if (!stats || !missevanSession || onboardingOpened.current) return;
-    if (stats.total === 0) {
+    if (incomingMissevanConnect.current || stats.total === 0) {
       onboardingOpened.current = true;
-      setFirstRun(true);
+      setFirstRun(stats.total === 0);
       setSync(true);
     }
   }, [stats, missevanSession]);

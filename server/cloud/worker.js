@@ -783,7 +783,7 @@ const worker = {
       if (url.pathname === '/api/cover' && request.method === 'GET') return handleCoverProxy(env, url);
       if (url.pathname.startsWith('/api/')) {
         const userId = await currentUser(request, env);
-        if (!userId) return json({ error: '请先登录', signInUrl: `/signin-with-chatgpt?return_to=${encodeURIComponent(url.pathname + url.search)}` }, 401);
+        if (!userId) return json({ error: '请先登录' }, 401);
         if (url.pathname === '/api/admin/import' && request.method === 'POST') {
           try { return json(await importBundle(env, userId, await request.json()), 201); }
           catch (error) { return json({ error: String(error.message || error) }, 400); }

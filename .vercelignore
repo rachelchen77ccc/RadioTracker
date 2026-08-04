@@ -1,0 +1,19 @@
+.git
+.vercel
+node_modules
+dist
+
+# 本地数据库、导出包与猫耳登录信息绝不上传
+data/radiotracker.db*
+data/missevan-export.json
+data/.missevan-session.json
+data/missevan-lists.json
+data/cloud-migration*.json
+data/covers/remote
+notion-export
+
+# 本地开发产物
+.env*
+!.env.example
+tsconfig.tsbuildinfo
+*.log

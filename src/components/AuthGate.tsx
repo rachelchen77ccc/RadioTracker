@@ -10,6 +10,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const emailRedirectTo = (
+    import.meta.env.NEXT_PUBLIC_SITE_URL?.trim()
+    || window.location.origin
+  );
 
   useEffect(() => {
     if (!supabase) return;
@@ -32,7 +36,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
     try {
       const result = mode === 'login'
         ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({ email, password });
+        : await supabase.auth.signUp({
+            email,
+            password,
+            options: { emailRedirectTo },
+          });
       if (result.error) throw result.error;
       if (mode === 'register' && !result.data.session) {
         setMessage('注册成功，请到邮箱确认后再登录。');
@@ -52,8 +60,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
         <h1>听剧档案柜</h1>
         <p>登录后，你的已购、收藏、收听进度、评分和剧评只属于你。</p>
         <form onSubmit={submit}>
-          <label>邮箱<input className="input" type="email" required value={email} onChange={event => setEmail(event.target.value)} /></label>
-          <label>密码<input className="input" type="password" required minLength={8} value={password} onChange={event => setPassword(event.target.value)} /></label>
+          <label>邮箱<input className="input" type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} /></label>
+          <label>密码<input className="input" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required minLength={8} value={password} onChange={event => setPassword(event.target.value)} /></label>
           <button className="btn primary big" disabled={busy}>{busy ? '请稍候…' : mode === 'login' ? '登录' : '创建账号'}</button>
         </form>
         <button className="linkish auth-switch" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setMessage(null); }}>

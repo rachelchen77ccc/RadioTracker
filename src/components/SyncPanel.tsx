@@ -8,8 +8,8 @@ import { appFetch } from '../cloud/supabase';
  * 第一次要贴一段 cookie，因为「已购 / 追剧」两个接口需要登录态，
  * 而猫耳站点的 CSP 挡死了从它页面直接把数据送回本地。
  *
- * cookie 存在 data/.missevan-session.json（600 权限、已进 .gitignore），
- * 接口只回「有没有」，从不回传内容。
+ * 云端会加密存入当前网页账号自己的凭据记录；接口只回「有没有」，
+ * 从不把 cookie 原文传回浏览器。
  */
 
 type Job = {
@@ -24,12 +24,14 @@ type Job = {
 type Session = { hasSession: boolean; userId: string | null; savedAt: string | null };
 
 export function SyncPanel({
-  onClose, onDone, autoStart,
+  onClose, onDone, autoStart, firstRun = false,
 }: {
   onClose: () => void;
   onDone: () => void;
   /** 侧栏按钮点进来的：有凭据就直接开跑，不用再点一次 */
   autoStart?: boolean;
+  /** 新账号第一次进入：显示完整引导，关联后立即跑首次同步 */
+  firstRun?: boolean;
 }) {
   const [job, setJob] = useState<Job | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -128,19 +130,32 @@ export function SyncPanel({
       <div className="modal sync" role="dialog" aria-modal="true">
         <button className="close" onClick={onClose} aria-label="关闭">×</button>
 
-        <div className="mono" style={{ marginBottom: 14 }}>SYNC // 猫耳同步</div>
-        <h2 style={{ margin: '0 0 6px', fontSize: 20 }}>自动更新</h2>
+        <div className="mono" style={{ marginBottom: 14 }}>
+          {firstRun ? 'WELCOME // 首次设置' : 'SYNC // 猫耳同步'}
+        </div>
+        <h2 style={{ margin: '0 0 6px', fontSize: 20 }}>
+          {firstRun ? '关联你的猫耳账号' : '自动更新'}
+        </h2>
+
+        {firstRun && (
+          <div className="onboarding-track">
+            <span className="done">1 创建账号</span>
+            <span className={ready ? 'done' : 'active'}>2 关联猫耳</span>
+            <span className={job?.running ? 'active' : job?.finishedAt && !job.error ? 'done' : ''}>3 同步剧目</span>
+            <span>4 标记状态</span>
+          </div>
+        )}
 
         {ready && !setup && (
           <>
             <p style={{ margin: '0 0 20px', color: 'var(--ink-2)', fontSize: 13 }}>
-              拉取已购和追剧 → 合并标记 → 补新剧的 CV 分类集数 → 缓存封面。
+              {firstRun ? '账号已经关联。接下来会拉取你的已购和追剧，并补齐剧目资料。' : '拉取已购和追剧 → 合并标记 → 补新剧的 CV 分类集数 → 缓存封面。'}
               <b>随时可以关掉这个窗口</b>，同步在后台继续，侧栏按钮上能看到进度。
             </p>
 
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               <button className="btn primary big" onClick={start} disabled={running}>
-                {running ? '同步中…' : '开始同步'}
+                {running ? '同步中…' : firstRun ? '开始首次同步' : '开始同步'}
               </button>
               {running && <button className="btn" onClick={onClose}>放后台跑</button>}
             </div>
@@ -150,13 +165,23 @@ export function SyncPanel({
               <button className="linkish" onClick={() => setSetup(true)}>更新</button>
               <button className="linkish" onClick={forget}>删除</button>
             </div>
+
+            {firstRun && job?.finishedAt && !job.running && !job.error && (
+              <div className="onboarding-done">
+                <strong>已购和追剧已同步完成</strong>
+                <span>没有确定收听状态的剧会保留六个状态按钮，之后由你逐个标记。</span>
+                <button className="btn primary" onClick={onClose}>开始标记收听状态</button>
+              </div>
+            )}
           </>
         )}
 
         {(!ready || setup) && (
           <>
             <p style={{ margin: '0 0 6px', color: 'var(--ink-2)', fontSize: 13 }}>
-              第一次要贴一段登录凭据，之后就只用点「开始同步」。
+              {firstRun
+                ? '先关联猫耳账号，保存成功后会立即开始第一次同步。'
+                : '第一次要贴一段登录凭据，之后就只用点「开始同步」。'}
             </p>
             <p className="warn">
               这段 cookie 等同于你的猫耳登录态。网页部署后会先加密再保存，
@@ -202,7 +227,7 @@ export function SyncPanel({
                 onClick={saveSession}
                 disabled={busy || !cookie.trim()}
               >
-                {busy ? '验证中…' : '验证并保存'}
+                {busy ? '验证中…' : firstRun ? '关联并开始同步' : '验证并保存'}
               </button>
               {setup && <button className="btn" onClick={() => setSetup(false)}>取消</button>}
             </div>

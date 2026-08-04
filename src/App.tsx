@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NavLink, Route, Routes } from 'react-router-dom';
 import { useFetch } from './api';
 import { DramaDrawer } from './components/DramaDrawer';
@@ -59,11 +59,32 @@ export function App() {
 
   const [open, setOpen] = useState<Drama | null>(null);
   const [sync, setSync] = useState(false);
+  const [firstRun, setFirstRun] = useState(false);
+  const [missevanSession, setMissevanSession] = useState<{ hasSession: boolean } | null>(null);
   const [version, setVersion] = useState(0);
   const { data: stats } = useFetch<Stats>('/api/stats', [version]);
+  const onboardingOpened = useRef(false);
 
   const bump = () => setVersion(v => v + 1);
   let no = 0;
+
+  const loadMissevanSession = () => {
+    appFetch('/api/sync/session')
+      .then(response => response.json())
+      .then(setMissevanSession)
+      .catch(() => {});
+  };
+
+  useEffect(() => { loadMissevanSession(); }, []);
+
+  useEffect(() => {
+    if (!stats || !missevanSession || onboardingOpened.current) return;
+    if (stats.total === 0) {
+      onboardingOpened.current = true;
+      setFirstRun(true);
+      setSync(true);
+    }
+  }, [stats, missevanSession]);
 
   /*
    * 侧栏按钮要能显示后台同步的进度，所以这里也轮询一下 ——
@@ -136,6 +157,18 @@ export function App() {
       </nav>
 
       <main className="main">
+        {stats?.total === 0 && (
+          <div className="first-run-banner">
+            <div>
+              <div className="mono">FIRST SETUP</div>
+              <strong>关联猫耳，导入你的已购和追剧</strong>
+              <span>同步后就可以逐个标记收听状态。</span>
+            </div>
+            <button className="btn primary" onClick={() => { setFirstRun(true); setSync(true); }}>
+              开始关联
+            </button>
+          </div>
+        )}
         <Routes>
           <Route path="/"           element={<Purchased onOpen={setOpen} version={version} />} />
           <Route path="/collection" element={<Collection onOpen={setOpen} version={version} />} />
@@ -149,7 +182,12 @@ export function App() {
       </main>
 
       {sync && (
-        <SyncPanel onClose={() => setSync(false)} onDone={bump} autoStart />
+        <SyncPanel
+          onClose={() => { setSync(false); setFirstRun(false); }}
+          onDone={() => { bump(); loadMissevanSession(); }}
+          autoStart
+          firstRun={firstRun}
+        />
       )}
 
       {open && (

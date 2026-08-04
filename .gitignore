@@ -25,3 +25,4 @@ data/cloud-migration*.json
 .env
 .env.*
 !.env.example
+.vercel

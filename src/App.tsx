@@ -3,6 +3,9 @@ import { NavLink, Route, Routes } from 'react-router-dom';
 import { useFetch } from './api';
 import { DramaDrawer } from './components/DramaDrawer';
 import { SyncPanel } from './components/SyncPanel';
+import { CloudMigration } from './components/CloudMigration';
+import { SignOutButton } from './components/AuthGate';
+import { appFetch } from './cloud/supabase';
 import type { Drama, Stats } from './types';
 import {
   Collection, Cv, History, Home, Library, Lists, Purchased, Rewatch,
@@ -52,6 +55,8 @@ const NAV: { label: string; items: NavItem[] }[] = [
 ];
 
 export function App() {
+  if (window.location.pathname === '/cloud-migration') return <CloudMigration />;
+
   const [open, setOpen] = useState<Drama | null>(null);
   const [sync, setSync] = useState(false);
   const [version, setVersion] = useState(0);
@@ -72,7 +77,7 @@ export function App() {
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
       try {
-        const j = await fetch('/api/sync/status').then(r => r.json());
+        const j = await appFetch('/api/sync/status').then(r => r.json());
         if (!alive) return;
         setSyncing(prev => {
           if (prev.running && !j.running) bump();   // 刚跑完，刷一次数据
@@ -127,6 +132,7 @@ export function App() {
             })}
           </div>
         ))}
+        <SignOutButton />
       </nav>
 
       <main className="main">
@@ -151,6 +157,7 @@ export function App() {
           drama={open}
           onClose={() => setOpen(null)}
           onSaved={d => { setOpen(d); bump(); }}
+          onDeleted={() => { setOpen(null); bump(); }}
         />
       )}
     </div>

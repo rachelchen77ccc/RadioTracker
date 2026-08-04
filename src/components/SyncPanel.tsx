@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { appFetch } from '../cloud/supabase';
 
 /**
  * 同步面板。
@@ -41,7 +42,7 @@ export function SyncPanel({
   const doneRef = useRef<string | null>(null);
 
   const loadSession = () =>
-    fetch('/api/sync/session').then(r => r.json()).then(setSession).catch(() => {});
+    appFetch('/api/sync/session').then(r => r.json()).then(setSession).catch(() => {});
 
   useEffect(() => { loadSession(); }, []);
 
@@ -49,7 +50,7 @@ export function SyncPanel({
     let alive = true;
     const tick = async () => {
       try {
-        const j: Job = await fetch('/api/sync/status').then(r => r.json());
+        const j: Job = await appFetch('/api/sync/status').then(r => r.json());
         if (!alive) return;
         setJob(j);
         // 只在「这一轮刚跑完」时刷一次外面的数据，别每次轮询都刷
@@ -77,7 +78,7 @@ export function SyncPanel({
   const saveSession = async () => {
     setBusy(true); setErr(null);
     try {
-      const res = await fetch('/api/sync/session', {
+      const res = await appFetch('/api/sync/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cookie, userId }),
@@ -92,13 +93,13 @@ export function SyncPanel({
   };
 
   const forget = async () => {
-    await fetch('/api/sync/session', { method: 'DELETE' });
+    await appFetch('/api/sync/session', { method: 'DELETE' });
     await loadSession();
   };
 
   const start = async () => {
     setErr(null);
-    const res = await fetch('/api/sync', {
+    const res = await appFetch('/api/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: '{}',
@@ -114,8 +115,9 @@ export function SyncPanel({
   useEffect(() => {
     if (!autoStart || kicked.current) return;
     if (!session || job === null) return;      // 等状态问回来再决定
+    if (!session.hasSession) return;            // 首次设置完成后再消费自动启动
     kicked.current = true;
-    if (session.hasSession && !job.running) start();
+    if (!job.running) start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoStart, session, job]);
 
@@ -157,9 +159,9 @@ export function SyncPanel({
               第一次要贴一段登录凭据，之后就只用点「开始同步」。
             </p>
             <p className="warn">
-              这段 cookie 等同于你的猫耳登录态，会明文存在本机
-              <code> data/.missevan-session.json</code>（600 权限、不进版本库）。
-              它会过期，失效时同步会明确报错、不会静默同步出空数据。
+              这段 cookie 等同于你的猫耳登录态。网页部署后会先加密再保存，
+              不会发给其他用户，也不会进入 GitHub。它会过期，失效时同步会明确报错、
+              不会静默同步出空数据。
             </p>
 
             <ol className="sync-steps">

@@ -35,12 +35,15 @@ const norm = s =>
 const nz = v => (v == null || v === '' ? null : v);
 
 export function mergeMissevan(db, payload) {
-  const boughtIds = new Set(
-    payload.boughtIds ?? (payload.bought ?? []).map(d => String(d.id))
-  );
-  const subIds = new Set(
-    payload.subscriptionIds ?? (payload.subscriptions ?? []).map(d => String(d.id))
-  );
+  const boughtList = payload.boughtIds ?? (payload.bought ?? []).map(d => String(d.id));
+  const subList = payload.subscriptionIds ?? (payload.subscriptions ?? []).map(d => String(d.id));
+  const boughtIds = new Set(boughtList.map(String));
+  const subIds = new Set(subList.map(String));
+  const boughtOrder = new Map(boughtList.map((id, i) => [String(id), i]));
+  const subOrder = new Map(subList.map((id, i) => [String(id), i]));
+  // 新格式显式标记完整；旧导出只要同时带两份数组，也可视为完整快照。
+  const listsComplete = payload.listsComplete === true ||
+    (Array.isArray(payload.bought) && Array.isArray(payload.subscriptions));
   const sawEpisodes = payload.sawEpisodes ?? {};
 
   // 两个列表并起来当作「猫耳侧已知的全部剧」，取每部剧的基础信息
@@ -54,14 +57,26 @@ export function mergeMissevan(db, payload) {
   }
 
   const all = db.prepare('SELECT * FROM dramas').all();
+  const hadOfficialSnapshot = all.some(d =>
+    d.platform === '猫耳' && d.synced_at &&
+    (d.sync_purchased != null || d.sync_subscribed != null)
+  );
+  const previousBought = new Set(all
+    .filter(d => d.platform === '猫耳' && d.missevan_id && d.sync_purchased === 1)
+    .map(d => String(d.missevan_id)));
+  const previousSubs = new Set(all
+    .filter(d => d.platform === '猫耳' && d.missevan_id && d.sync_subscribed === 1)
+    .map(d => String(d.missevan_id)));
   const byMissevan = new Map(all.filter(d => d.missevan_id).map(d => [String(d.missevan_id), d]));
   const byTitle = new Map(all.filter(d => d.platform === '猫耳').map(d => [norm(d.title), d]));
 
   const insert = db.prepare(`
     INSERT INTO dramas (missevan_id, title, platform, source, purchased, subscribed,
+                        bought_order, sub_order,
                         cover_url, abstract, sync_saw_episode, sync_purchased,
                         sync_subscribed, synced_at)
     VALUES (@missevan_id, @title, '猫耳', 'missevan', @purchased, @subscribed,
+            @bought_order, @sub_order,
             @cover_url, @abstract, @saw, @purchased, @subscribed, datetime('now'))
   `);
 
@@ -84,6 +99,8 @@ export function mergeMissevan(db, payload) {
           title: m.name,
           purchased,
           subscribed,
+          bought_order: boughtOrder.get(id) ?? null,
+          sub_order: subOrder.get(id) ?? null,
           cover_url: nz(m.cover),
           abstract: nz(m.abstract),
           saw,
@@ -109,6 +126,14 @@ export function mergeMissevan(db, payload) {
       if (existing.subscribed !== subscribed) {
         sets.push('subscribed = @subscribed');
         p.subscribed = subscribed;
+      }
+      const nextBoughtOrder = boughtOrder.get(id) ?? null;
+      const nextSubOrder = subOrder.get(id) ?? null;
+      if (existing.bought_order !== nextBoughtOrder) {
+        sets.push('bought_order = @bought_order'); p.bought_order = nextBoughtOrder;
+      }
+      if (existing.sub_order !== nextSubOrder) {
+        sets.push('sub_order = @sub_order'); p.sub_order = nextSubOrder;
       }
       if (!existing.missevan_id) {
         sets.push('missevan_id = @missevan_id');
@@ -148,17 +173,21 @@ export function mergeMissevan(db, payload) {
      * 列表为空时绝不清扫：那多半是登录态过期或抓取失败，
      * 照着空列表扫会把 274 部追剧全部清掉。
      */
-    if (subIds.size > 0) {
+    if (listsComplete) {
       const ids = [...subIds];
+      const notInSubs = ids.length
+        ? `AND (missevan_id IS NULL OR missevan_id NOT IN (${ids.map(() => '?').join(',')}))`
+        : '';
       const dropped = db.prepare(`
         SELECT id, title FROM dramas
         WHERE platform = '猫耳' AND subscribed = 1
-          AND (missevan_id IS NULL OR missevan_id NOT IN (${ids.map(() => '?').join(',')}))
+          ${notInSubs}
       `).all(...ids);
 
       if (dropped.length) {
         db.prepare(`
-          UPDATE dramas SET subscribed = 0, sync_subscribed = 0, updated_at = datetime('now')
+          UPDATE dramas SET subscribed = 0, sub_order = NULL,
+            sync_subscribed = 0, updated_at = datetime('now')
           WHERE id IN (${dropped.map(() => '?').join(',')})
         `).run(...dropped.map(d => d.id));
         stats.unsubscribed = dropped.length;
@@ -166,7 +195,43 @@ export function mergeMissevan(db, payload) {
           notices.push({ title: d.title, change: '猫耳上已取消追剧 → 移出收藏' });
         }
       }
+
+      // 完整快照允许把官方只读状态双向刷新。主 purchased 仍坚持只升不降，
+      // 但 sync_purchased / 排序必须如实反映这次猫耳列表。
+      for (const d of all) {
+        if (d.platform !== '猫耳' || !d.missevan_id) continue;
+        const id = String(d.missevan_id);
+        db.prepare(`
+          UPDATE dramas SET
+            sync_purchased = ?, sync_subscribed = ?,
+            bought_order = ?, sub_order = ?, synced_at = datetime('now')
+          WHERE id = ?
+        `).run(
+          boughtIds.has(id) ? 1 : 0,
+          subIds.has(id) ? 1 : 0,
+          boughtOrder.get(id) ?? null,
+          subOrder.get(id) ?? null,
+          d.id
+        );
+      }
     }
+
+    const diff = (next, prev) => [...next].filter(id => !prev.has(id));
+    const summary = {
+      baseline: !hadOfficialSnapshot,
+      boughtTotal: boughtIds.size,
+      subscriptionTotal: subIds.size,
+      boughtAdded: hadOfficialSnapshot ? diff(boughtIds, previousBought).length : 0,
+      boughtRemoved: hadOfficialSnapshot ? diff(previousBought, boughtIds).length : 0,
+      subscribedAdded: hadOfficialSnapshot ? diff(subIds, previousSubs).length : 0,
+      subscribedRemoved: hadOfficialSnapshot ? diff(previousSubs, subIds).length : 0,
+    };
+    notices.unshift({
+      title: summary.baseline ? '建立猫耳列表基线' : '猫耳列表变化',
+      change: summary.baseline
+        ? `已购 ${summary.boughtTotal} · 追剧 ${summary.subscriptionTotal}`
+        : `已购 +${summary.boughtAdded}/-${summary.boughtRemoved} · 追剧 +${summary.subscribedAdded}/-${summary.subscribedRemoved}`,
+    });
 
     db.prepare(
       `INSERT INTO sync_log (kind, added, updated, skipped, detail)
@@ -179,5 +244,16 @@ export function mergeMissevan(db, payload) {
     FROM dramas WHERE sync_saw_episode IS NOT NULL AND sync_saw_episode <> ''
   `).all();
 
-  return { ...stats, notices, drift };
+  const diff = (next, prev) => [...next].filter(id => !prev.has(id));
+  const summary = {
+    baseline: !hadOfficialSnapshot,
+    boughtTotal: boughtIds.size,
+    subscriptionTotal: subIds.size,
+    boughtAdded: hadOfficialSnapshot ? diff(boughtIds, previousBought).length : 0,
+    boughtRemoved: hadOfficialSnapshot ? diff(previousBought, boughtIds).length : 0,
+    subscribedAdded: hadOfficialSnapshot ? diff(subIds, previousSubs).length : 0,
+    subscribedRemoved: hadOfficialSnapshot ? diff(previousSubs, subIds).length : 0,
+  };
+
+  return { ...stats, notices, drift, summary };
 }

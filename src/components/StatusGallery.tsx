@@ -42,6 +42,9 @@ export function StatusGallery({
   const [sort, setSort] = useState('todo');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(60);
+  // 标完状态后让卡片留在原位并立即变成普通展示，不打断连续整理。
+  const [overrides, setOverrides] = useState<Record<number, Drama>>({});
+  const [marking, setMarking] = useState<number | null>(null);
 
   // 自定义排序时在本地先动，拖完再一次性提交，不然每拖一格都要等一次网络
   const [order, setOrder] = useState<Drama[] | null>(null);
@@ -56,6 +59,7 @@ export function StatusGallery({
   // 换筛选/排序/页码时清掉本地拖拽副本
   useEffect(() => { setOrder(null); }, [status, sort, page, pageSize]);
   useEffect(() => { setPage(1); }, [status, sort, pageSize]);
+  useEffect(() => { setOverrides({}); }, [path, version]);
 
   const rows = order ?? data?.items ?? [];
   const totalAll = (counts ?? []).reduce((n, c) => n + c.n, 0);
@@ -98,6 +102,18 @@ export function StatusGallery({
     reload();
   };
 
+  const mark = async (drama: Drama, next: Drama['status']) => {
+    setMarking(drama.id);
+    try {
+      const saved = await api.update(drama.id, { status: next });
+      setOverrides(prev => ({ ...prev, [drama.id]: saved }));
+    } catch (e) {
+      alert('状态保存失败：' + String((e as Error).message ?? e));
+    } finally {
+      setMarking(null);
+    }
+  };
+
   return (
     <>
       <div className="toolbar">
@@ -128,7 +144,8 @@ export function StatusGallery({
       >
       <div className="gallery mark">
         {rows.map(d => {
-          const current = d.status;
+          const row = overrides[d.id] ?? d;
+          const current = row.status;
           return (
             <div
               className={'card' + (canDrag ? ' draggable' : '')}
@@ -139,30 +156,41 @@ export function StatusGallery({
               onDragOver={e => canDrag && e.preventDefault()}
               onDrop={() => canDrag && onDrop(d.id)}
             >
-              <div className="cover" onClick={() => onOpen(d)} style={{ cursor: 'pointer' }}>
-                {d.cover
-                  ? <img src={d.cover} alt="" loading="lazy" />
+              <div className="cover" onClick={() => onOpen(row)} style={{ cursor: 'pointer' }}>
+                {row.cover
+                  ? <img src={row.cover} alt="" loading="lazy" />
                   : <div className="placeholder">NO COVER</div>}
               </div>
 
               <div className="filerow">
-                <span>{d.platform === '猫耳' ? 'MEV' : d.platform === '漫播' ? 'MBO' : 'ETC'}</span>
+                <span>{row.platform === '猫耳' ? 'MEV' : row.platform === '漫播' ? 'MBO' : 'ETC'}</span>
                 <span>·</span>
                 <span>{String(d.id).padStart(3, '0')}</span>
-                {d.rating != null && <span className="score">{d.rating.toFixed(1)}</span>}
+                {row.rating != null && <span className="score">{row.rating.toFixed(1)}</span>}
               </div>
 
               <div className="body">
-                <div className="title" onClick={() => onOpen(d)} style={{ cursor: 'pointer' }}>
-                  {d.title}
+                <div className="title" onClick={() => onOpen(row)} style={{ cursor: 'pointer' }}>
+                  {row.title}
                   {current && <span className={`tag s-${current}`}>{current}</span>}
                 </div>
                 {(() => {
-                  const main = d.cvs.filter(c => c.role_type === '主役');
+                  const main = row.cvs.filter(c => c.role_type === '主役');
                   return main.length > 0 && <div className="cv">{main.map(c => c.name).join(' · ')}</div>;
                 })()}
-                <Tape heard={d.heard_episodes} total={d.total_episodes} />
-
+                <Tape heard={row.heard_episodes} total={row.total_episodes} />
+                {!current && (
+                  <div className="status-picker" aria-label="选择收听状态">
+                    {STATUSES.map(s => (
+                      <button
+                        key={s}
+                        type="button"
+                        disabled={marking === row.id}
+                        onClick={() => mark(row, s)}
+                      >{s}</button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           );

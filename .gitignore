@@ -10,10 +10,20 @@ data/covers/remote/
 # 猫耳导出里含账号相关信息，不要提交
 data/missevan-export.json
 
-notion-export/unpacked/
+# Notion 原始导出包含私人记录，只保留在本机
+notion-export/
 .DS_Store
 tsconfig.tsbuildinfo
 
 # 猫耳登录态，绝不提交
 data/.missevan-session.json
 data/missevan-lists.json
+
+# 本地迁移包包含个人收听记录和剧评，绝不提交
+data/cloud-migration*.json
+
+# 部署密钥只保留模板
+.env
+.env.*
+!.env.example
+.vercel

@@ -8,6 +8,7 @@ import type { Drama } from './types';
  * 截图方案在长文本上很容易糊掉或截断。
  *
  * 版式沿用站内的档案基调：纯白纸、发丝线、等宽字段名、底部条码。
+ * 顶部是一块横向的「正在播放」专辑面板：左边保留完整封面，右边放剧名和收听资料。
  */
 
 const W = 1080;              // 输出宽度，微博/小红书都吃得下
@@ -18,10 +19,8 @@ const INK = '#1b1a17';
 const INK2 = '#57544d';
 const MUTED = '#918d84';
 const RULE = '#dedbd4';
-const RUST = '#8c3b32';
 const KRAFT = '#d4c4a5';
 const PAPER = '#ffffff';
-const PAPER2 = '#f7f6f3';
 
 const MONO = '"SF Mono", SFMono-Regular, Menlo, monospace';
 const SANS = 'system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", sans-serif';
@@ -57,13 +56,25 @@ function loadImage(src: string): Promise<HTMLImageElement | null> {
   });
 }
 
-/** 居中裁成正方形后画进去 —— 跟站内封面一样的裁法 */
-function drawCoverSquare(
+/** 以 cover 方式裁进任意矩形，避免封面被拉伸。 */
+function drawImageCover(
   ctx: CanvasRenderingContext2D, img: HTMLImageElement,
-  x: number, y: number, size: number
+  x: number, y: number, width: number, height: number
 ) {
-  const s = Math.min(img.width, img.height);
-  ctx.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, x, y, size, size);
+  const sourceRatio = img.width / img.height;
+  const targetRatio = width / height;
+  let sx = 0;
+  let sy = 0;
+  let sw = img.width;
+  let sh = img.height;
+  if (sourceRatio > targetRatio) {
+    sw = img.height * targetRatio;
+    sx = (img.width - sw) / 2;
+  } else {
+    sh = img.width / targetRatio;
+    sy = (img.height - sh) / 2;
+  }
+  ctx.drawImage(img, sx, sy, sw, sh, x, y, width, height);
 }
 
 export async function renderShareCard(drama: Drama): Promise<Blob> {
@@ -78,11 +89,9 @@ export async function renderShareCard(drama: Drama): Promise<Blob> {
   const bodyW = W - PAD * 2;
   const reviewLines = review ? wrap(measure, review, bodyW) : [];
 
-  const COVER = 420;
-  const headTop = PAD + 58;                       // 顶部档案条下方
-  const metaTop = headTop + COVER + 46;
-  const metaH = 150;                              // 剧名 + CV + 评分区
-  const reviewTop = metaTop + metaH;
+  const playerTop = PAD + 38;
+  const playerH = 430;
+  const reviewTop = playerTop + playerH + 42;
   const lineH = 46;
   const reviewH = reviewLines.length ? 56 + reviewLines.length * lineH : 0;
   const H = Math.round(reviewTop + reviewH + 120);
@@ -114,7 +123,7 @@ export async function renderShareCard(drama: Drama): Promise<Blob> {
   ctx.fill();
 
   ctx.fillStyle = INK;
-  ctx.font = `600 17px ${MONO}`;
+  ctx.font = `bold 17px ${SANS}`;
   ctx.fillText('听 剧 档 案', PAD - 8, PAD - 16);
 
   ctx.fillStyle = MUTED;
@@ -124,65 +133,97 @@ export async function renderShareCard(drama: Drama): Promise<Blob> {
   ctx.fillText(fileNo, W - PAD + 12, PAD - 14);
   ctx.textAlign = 'left';
 
-  // 封面：居中的正方形
-  const coverX = (W - COVER) / 2;
-  ctx.fillStyle = PAPER2;
-  ctx.fillRect(coverX, headTop, COVER, COVER);
-  if (cover) drawCoverSquare(ctx, cover, coverX, headTop, COVER);
-  ctx.strokeStyle = RULE;
-  ctx.strokeRect(coverX + .5, headTop + .5, COVER - 1, COVER - 1);
+  // 横向专辑播放器。参考播放器的左右分栏，但沿用档案库自己的纸张与暗灰色。
+  ctx.fillStyle = '#282826';
+  ctx.beginPath();
+  ctx.roundRect(PAD, playerTop, bodyW, playerH, 28);
+  ctx.fill();
+  ctx.strokeStyle = '#45423d';
+  ctx.stroke();
 
-  // 剧名
-  let y = metaTop;
-  ctx.fillStyle = INK;
-  ctx.font = `650 40px ${SANS}`;
-  const titleLines = wrap(ctx, drama.title, bodyW).slice(0, 2);
-  for (const l of titleLines) { ctx.fillText(l, PAD, y); y += 50; }
+  const coverSize = 334;
+  const coverX = PAD + 36;
+  const coverY = playerTop + 48;
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(coverX, coverY, coverSize, coverSize, 15);
+  ctx.clip();
+  ctx.fillStyle = '#3c3a36';
+  ctx.fillRect(coverX, coverY, coverSize, coverSize);
+  if (cover) drawImageCover(ctx, cover, coverX, coverY, coverSize, coverSize);
+  ctx.restore();
+  ctx.strokeStyle = '#56524c';
+  ctx.beginPath();
+  ctx.roundRect(coverX + .5, coverY + .5, coverSize - 1, coverSize - 1, 15);
+  ctx.stroke();
 
-  // CV
-  if (main.length) {
-    ctx.fillStyle = MUTED;
-    ctx.font = `13px ${MONO}`;
-    ctx.fillText('主役 CV', PAD, y + 8);
-    ctx.fillStyle = INK2;
-    ctx.font = `26px ${SANS}`;
-    ctx.fillText(main.join('  ·  '), PAD + 92, y + 2);
-    y += 44;
+  const infoX = coverX + coverSize + 46;
+  const infoW = W - PAD - 36 - infoX;
+  let infoY = playerTop + 52;
+
+  ctx.fillStyle = '#aaa69d';
+  ctx.font = `bold 13px ${MONO}`;
+  ctx.fillText('N O W   P L A Y I N G', infoX, infoY);
+
+  infoY += 35;
+  ctx.fillStyle = '#f4f1ea';
+  ctx.font = `bold 36px ${SANS}`;
+  const titleLines = wrap(ctx, drama.title, infoW).slice(0, 2);
+  for (const line of titleLines) {
+    ctx.fillText(line, infoX, infoY);
+    infoY += 45;
   }
 
-  // 评分 + 平台 + 集数
-  ctx.fillStyle = MUTED;
-  ctx.font = `13px ${MONO}`;
-  ctx.fillText('我的评分', PAD, y + 10);
-  if (drama.rating != null) {
-    ctx.fillStyle = RUST;
-    ctx.font = `700 34px ${MONO}`;
-    ctx.fillText(drama.rating.toFixed(2).replace(/\.?0+$/, ''), PAD + 92, y);
-    const stars = Math.round(drama.rating);
-    ctx.fillStyle = RUST;
-    ctx.font = `22px ${SANS}`;
-    ctx.fillText('★'.repeat(stars) + '☆'.repeat(Math.max(0, 5 - stars)), PAD + 176, y + 8);
-  } else {
-    ctx.fillStyle = MUTED;
-    ctx.font = `26px ${SANS}`;
-    ctx.fillText('—', PAD + 92, y + 2);
+  infoY += 10;
+  ctx.fillStyle = '#aaa69d';
+  ctx.font = `12px ${MONO}`;
+  ctx.fillText('CAST / CV', infoX, infoY);
+  infoY += 22;
+  ctx.fillStyle = '#ddd9d1';
+  ctx.font = `22px ${SANS}`;
+  const cvLines = wrap(ctx, main.length ? main.join('  ·  ') : '—', infoW).slice(0, 2);
+  for (const line of cvLines) {
+    ctx.fillText(line, infoX, infoY);
+    infoY += 30;
   }
 
-  // 右侧：平台 / 集数
-  ctx.textAlign = 'right';
-  ctx.fillStyle = MUTED;
-  ctx.font = `15px ${MONO}`;
-  const right = [
-    drama.platform,
-    drama.total_episodes ? `${drama.total_episodes} 集` : null,
-    drama.finished_date ?? null,
-  ].filter(Boolean).join('   ');
-  ctx.fillText(right, W - PAD, y + 12);
-  ctx.textAlign = 'left';
+  const factsY = playerTop + 286;
+  const facts = [
+    ['RATING', drama.rating != null ? `${drama.rating.toFixed(2).replace(/\.?0+$/, '')} / 5` : '—'],
+    ['PLATFORM', drama.platform],
+    ['DATE', drama.finished_date ?? drama.synced_at?.slice(0, 10) ?? '—'],
+  ];
+  const factW = infoW / facts.length;
+  for (let i = 0; i < facts.length; i++) {
+    const x = infoX + factW * i;
+    ctx.fillStyle = '#8f8b83';
+    ctx.font = `11px ${MONO}`;
+    ctx.fillText(facts[i][0], x, factsY);
+    ctx.fillStyle = i === 0 && drama.rating != null ? '#e6a296' : '#f0ece4';
+    ctx.font = `bold 19px ${SANS}`;
+    ctx.fillText(facts[i][1], x, factsY + 24);
+  }
 
-  y += 62;
+  const progressY = playerTop + 368;
+  const progress = drama.total_episodes
+    ? Math.max(0, Math.min(1, (drama.heard_episodes ?? 0) / drama.total_episodes))
+    : 0;
+  ctx.fillStyle = '#5a5751';
+  ctx.fillRect(infoX, progressY, infoW, 3);
+  ctx.fillStyle = '#eee9df';
+  ctx.fillRect(infoX, progressY, infoW * progress, 3);
+  ctx.beginPath();
+  ctx.arc(infoX + infoW * progress, progressY + 1.5, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#aaa69d';
+  ctx.font = `12px ${MONO}`;
+  ctx.fillText(
+    `EP ${drama.heard_episodes ?? 0} / ${drama.total_episodes ?? '—'}`,
+    infoX,
+    progressY + 17
+  );
 
-  // 分隔线
+  let y = reviewTop;
   ctx.strokeStyle = RULE;
   ctx.beginPath();
   ctx.moveTo(PAD, y + .5);
@@ -193,7 +234,7 @@ export async function renderShareCard(drama: Drama): Promise<Blob> {
   if (reviewLines.length) {
     y += 30;
     ctx.fillStyle = MUTED;
-    ctx.font = `600 13px ${MONO}`;
+    ctx.font = `bold 13px ${MONO}`;
     ctx.fillText('R E P O', PAD, y);
     y += 30;
 

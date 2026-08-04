@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { Drama } from './types';
+import { appFetch } from './cloud/supabase';
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
+  const res = await appFetch(path, {
     ...init,
     headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
   });

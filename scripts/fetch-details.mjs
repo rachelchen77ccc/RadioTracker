@@ -7,8 +7,9 @@
  * 所以浏览器脚本只负责抓两个需要登录态的列表（已购 / 追剧），
  * 剩下几百次详情请求全在这里跑 —— 快、可重试、不受浏览器下载拦截影响。
  *
- * 默认要拉的是三类：
- *   · 还缺 CV 的（新同步进来的剧）
+ * 默认要拉的是四类：
+ *   · 还没从猫耳详情确认过总集数的（新同步进来的剧）
+ *   · 还缺 CV 的
  *   · status='在听' 的
  *   · 连载中且你追了或买了的
  * 后两类**每次都刷**，因为它们的集数会长 —— 这正是「同步剧集更新进度」。
@@ -21,6 +22,7 @@
  * 缺了不影响任何东西 —— 它本来就只是个灰色提示。
  */
 import { openDb } from '../server/db.js';
+import { resolveEpisodeTotal } from './episode-total.mjs';
 
 const ALL = process.argv.includes('--all');
 const db = openDb();
@@ -35,6 +37,7 @@ const targets = db.prepare(
          AND detail_error IS NULL
          AND (
            NOT EXISTS (SELECT 1 FROM drama_cvs WHERE drama_id = d.id)
+           OR d.sync_total_episodes IS NULL
            OR d.status = '在听'
            OR (d.serialize_status = '连载中' AND (d.purchased = 1 OR d.subscribed = 1))
          )`
@@ -59,7 +62,11 @@ const link = db.prepare(
    ON CONFLICT DO NOTHING`
 );
 
-/** 空缺才回填，人工填过的一律不动 */
+/**
+ * 空缺才回填，人工填过的一律不动。
+ * 总集数例外：第一次以猫耳详情为准；之后如果主字段与上次同步快照不同，
+ * 就说明用户手动改过，后续同步只更新快照，不覆盖手动值。
+ */
 const fillIfEmpty = db.prepare(`
   UPDATE dramas SET
     kind             = COALESCE(kind, @kind),
@@ -69,7 +76,13 @@ const fillIfEmpty = db.prepare(`
     abstract         = COALESCE(abstract, @abstract),
     cover_url        = COALESCE(cover_url, @cover_url),
     -- 这三个是会变的事实，每次都刷新。你标的「听到哪」不在这里，永远不动。
-    total_episodes   = COALESCE(@total_episodes, total_episodes),
+    total_episodes   = CASE
+      WHEN sync_total_episodes IS NULL
+        OR total_episodes IS NULL
+        OR total_episodes = sync_total_episodes
+      THEN COALESCE(@total_episodes, total_episodes)
+      ELSE total_episodes
+    END,
     serialize_status = COALESCE(@serialize_status, serialize_status),
     update_info      = COALESCE(@update_info, update_info),
     price            = COALESCE(price, @price),
@@ -83,6 +96,13 @@ const fillIfEmpty = db.prepare(`
     detail_fetched_at   = datetime('now')
   WHERE id = @id
 `);
+
+// 「听完」是一个强约束：最终采用哪一个总集数，进度都同步拉满。
+const fillCompletedProgress = db.prepare(`
+  UPDATE dramas SET heard_episodes = total_episodes
+  WHERE id = ? AND status = '听完' AND total_episodes IS NOT NULL
+`);
+const getTotal = db.prepare('SELECT total_episodes FROM dramas WHERE id = ?');
 
 const markError = db.prepare(
   `UPDATE dramas SET detail_error = ? WHERE id = ?`
@@ -115,7 +135,7 @@ function parseUpdateDay(abstractHtml) {
 
 let ok = 0, cvLinks = 0, days = 0;
 const failed = [];
-const grew = [];   // 集数变多了的剧 —— 这是你每次同步最想看到的
+const totalChanges = [];
 
 for (const [i, t] of targets.entries()) {
   let info;
@@ -142,6 +162,12 @@ for (const [i, t] of targets.entries()) {
   if (!info) continue;
 
   const d = info.drama ?? {};
+  const episodeNames = (info.episodes?.episode ?? []).map(e => e.name).filter(Boolean);
+  const episodeTotal = resolveEpisodeTotal({
+    abstract: d.abstract,
+    newest: d.newest,
+    episodeNames,
+  });
   const serialize_status =
     String(d.integrity) === '1' ? '已完结' : String(d.integrity) === '2' ? '连载中' : null;
 
@@ -155,11 +181,19 @@ for (const [i, t] of targets.entries()) {
     organization: d.organization?.name ?? null,
     abstract: d.abstract || null,
     cover_url: d.cover || null,
-    total_episodes: (info.episodes?.episode ?? []).length || null,
+    total_episodes: episodeTotal.total,
     price: d.price ?? null,
     serialize_status,
     update_info: d.newest || null,
   });
+  fillCompletedProgress.run(t.id);
+  const effectiveTotal = getTotal.get(t.id)?.total_episodes ?? null;
+  if (effectiveTotal != null && effectiveTotal !== t.total_episodes) {
+    totalChanges.push({
+      title: t.title, from: t.total_episodes, to: effectiveTotal,
+      newest: d.newest, source: episodeTotal.source,
+    });
+  }
 
   // Notion 带来的主役是你自己挑的，不动；猫耳的一律只补配役。
   // 完全没有主役记录的（猫耳新同步进来的剧）才用「前两位是主役」的约定。
@@ -176,10 +210,6 @@ for (const [i, t] of targets.entries()) {
   }
 
   ok++;
-  const now = (info.episodes?.episode ?? []).length || null;
-  if (now && t.total_episodes && now > t.total_episodes) {
-    grew.push({ title: t.title, from: t.total_episodes, to: now, newest: d.newest });
-  }
   if (parseUpdateDay(d.abstract)) days++;
   if (i % 25 === 24) process.stdout.write(`  ${i + 1}/${targets.length}\r`);
   await sleep(250);
@@ -187,13 +217,16 @@ for (const [i, t] of targets.entries()) {
 
 console.log(`\n详情补齐：刷新 ${ok} 部 · 新建 CV 关联 ${cvLinks} 条 · 回填更新日 ${days} 部 · 失败 ${failed.length}`);
 
-if (grew.length) {
-  console.log(`\n📻 有新集（${grew.length} 部）：`);
-  for (const g of grew) {
-    console.log(`   ${g.title}  ${g.from} → ${g.to} 集${g.newest ? `，更新至「${g.newest}」` : ''}`);
+if (totalChanges.length) {
+  console.log(`\n📻 总集数调整（${totalChanges.length} 部）：`);
+  for (const g of totalChanges) {
+    console.log(
+      `   ${g.title}  ${g.from} → ${g.to} 集（${g.source}）` +
+      (g.newest ? `，更新至「${g.newest}」` : '')
+    );
   }
 } else {
-  console.log('\n没有剧更新新集。');
+  console.log('\n总集数没有变化。');
 }
 
 if (failed.length) {

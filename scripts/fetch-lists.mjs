@@ -51,14 +51,23 @@ const get = async (url, tries = 3) => {
 
 // ── 已购（每页 100）──
 const bought = [];
+let boughtPages = 0;
 {
   let p = 1, maxpage = 1;
   do {
-    const info = (await get(
+    const payload = await get(
       `https://www.missevan.com/mperson/getdramabought?page=${p}&page_size=100`
-    )).info ?? {};
-    bought.push(...(info.data ?? []));
-    maxpage = info.pagination?.maxpage ?? 1;
+    );
+    const info = payload?.info;
+    if (!info || !Array.isArray(info.data) || !info.pagination) {
+      throw new Error(`已购第 ${p} 页结构异常，停止同步以保护本地数据`);
+    }
+    bought.push(...info.data);
+    maxpage = Number(info.pagination.maxpage ?? 1);
+    if (!Number.isInteger(maxpage) || maxpage < 1) {
+      throw new Error(`已购第 ${p} 页分页信息异常，停止同步以保护本地数据`);
+    }
+    boughtPages++;
     console.log(`已购 ${p}/${maxpage} · 累计 ${bought.length}`);
     p++;
     await sleep(400);
@@ -67,14 +76,23 @@ const bought = [];
 
 // ── 追剧（服务端把每页锁死 20；翻页参数是 page 不是 p）──
 const subs = [];
+let subscriptionPages = 0;
 {
   let p = 1, maxpage = 1;
   do {
-    const info = (await get(
+    const payload = await get(
       `https://www.missevan.com/dramaapi/getusersubscriptions?user_id=${userId}&page_size=20&page=${p}`
-    )).info ?? {};
-    subs.push(...(info.Datas ?? []));
-    maxpage = info.pagination?.maxpage ?? 1;
+    );
+    const info = payload?.info;
+    if (!info || !Array.isArray(info.Datas) || !info.pagination) {
+      throw new Error(`追剧第 ${p} 页结构异常，停止同步以保护本地数据`);
+    }
+    subs.push(...info.Datas);
+    maxpage = Number(info.pagination.maxpage ?? 1);
+    if (!Number.isInteger(maxpage) || maxpage < 1) {
+      throw new Error(`追剧第 ${p} 页分页信息异常，停止同步以保护本地数据`);
+    }
+    subscriptionPages++;
     console.log(`追剧 ${p}/${maxpage} · 累计 ${subs.length}`);
     p++;
     await sleep(400);
@@ -89,6 +107,8 @@ if (!bought.length && !subs.length) {
 fs.writeFileSync(OUT, JSON.stringify({
   exportedAt: new Date().toISOString(),
   userId,
+  listsComplete: true,
+  pageCounts: { bought: boughtPages, subscriptions: subscriptionPages },
   boughtIds: bought.map(d => String(d.id)),
   subscriptionIds: subs.map(d => String(d.id)),
   bought,

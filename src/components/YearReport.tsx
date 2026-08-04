@@ -1,14 +1,14 @@
+import { useEffect, useState } from 'react';
 import { useFetch } from '../api';
 import { Gallery } from './DramaCard';
+import { renderYearShareCard } from '../yearShareCard';
 import type { Drama, YearStats } from '../types';
 
 /**
  * 年度报告。
  *
- * 四张图全部是**单系列** —— 一个颜色、没有图例，所以不需要分类色板
- * （档案那套低饱和色做分类色是过不了 CVD 分辨检查的）。
- * 单系列的规则是：标题已经说明了它是什么，不需要图例；
- * 数值直接标在条上，不靠颜色传达身份。
+ * 每个数据区块保留单系列图表，数值直接标在条上；区块之间使用
+ * 不同的低饱和色，避免整页统计信息被单一颜色淹没。
  */
 
 const MONTHS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
@@ -61,7 +61,7 @@ function Box({
 }: { bare?: boolean; tab: string; children: React.ReactNode }) {
   if (bare) {
     return (
-      <div className="viz-block">
+      <div className="viz-block" data-tab={tab}>
         <div className="mono viz-block-tab">{tab}</div>
         {children}
       </div>
@@ -79,12 +79,85 @@ export function YearReport({
 }) {
   const { data: s, loading, error } = useFetch<YearStats>(`/api/years/${year}/stats`, [version]);
   const { data: dramas } = useFetch<Drama[]>(`/api/years/${year}`, [version]);
+  const [pickIds, setPickIds] = useState<number[]>([]);
+  const [editing, setEditing] = useState(false);
+  const [note, setNote] = useState('');
+  const [share, setShare] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const [loadedYear, setLoadedYear] = useState('');
+
+  const ranked = [...(dramas ?? [])].sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1) || a.title.localeCompare(b.title));
+  const defaultPicks = ranked.slice(0, 5);
+  const picks = pickIds
+    .map(id => dramas?.find(d => d.id === id))
+    .filter((d): d is Drama => !!d);
+  const topFive = picks.length === 5 ? picks : defaultPicks;
+
+  useEffect(() => {
+    const saved = localStorage.getItem(`radio-tracker:year-report:${year}`);
+    if (!saved) {
+      setPickIds([]);
+      setNote('');
+      setLoadedYear(year);
+      return;
+    }
+    try {
+      const value = JSON.parse(saved) as { picks?: number[]; note?: string };
+      setPickIds(Array.isArray(value.picks) ? value.picks : []);
+      setNote(value.note ?? '');
+    } catch {
+      setPickIds([]);
+      setNote('');
+    }
+    setLoadedYear(year);
+  }, [year]);
+
+  useEffect(() => {
+    if (!dramas || loadedYear !== year) return;
+    localStorage.setItem(`radio-tracker:year-report:${year}`, JSON.stringify({ picks: pickIds, note }));
+  }, [dramas, year, pickIds, note, loadedYear]);
+
+  useEffect(() => () => { if (share) URL.revokeObjectURL(share); }, [share]);
 
   if (loading) return <div className="empty-state">— 读取中 —</div>;
   if (error) return <div className="error">出错了：{error}</div>;
   if (!s) return null;
 
   const busiest = s.byMonth.reduce((a, b) => (b.n > a.n ? b : a), s.byMonth[0]);
+
+  const updatePick = (slot: number, id: number) => {
+    const next = topFive.map(d => d.id);
+    const current = next.indexOf(id);
+    if (current >= 0) next[current] = next[slot];
+    next[slot] = id;
+    setPickIds(next);
+  };
+
+  const makeShare = async () => {
+    setSharing(true);
+    try {
+      const blob = await renderYearShareCard({
+        year, total: s.total, episodes: s.episodes, avgRating: s.avgRating, reviews: s.reviews,
+      }, topFive, note, {
+        byMonth: s.byMonth,
+        topCvs: s.topCvs,
+        byCategory: s.byCategory,
+      });
+      setShare(URL.createObjectURL(blob));
+    } catch (e) {
+      alert('生成失败：' + String((e as Error).message ?? e));
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  const download = () => {
+    if (!share) return;
+    const a = document.createElement('a');
+    a.href = share;
+    a.download = `${year}-听剧年度总结.png`;
+    a.click();
+  };
 
   return (
     <div className={"viz-root" + (bare ? " bare" : "")}>
@@ -145,17 +218,47 @@ export function YearReport({
         </div>
       </Box>
 
-      {s.topRated.length > 0 && (
+      {topFive.length > 0 && (
         <Box bare={bare} tab="年度高分">
-          <div className="hbars">
-            {s.topRated.map((d, i) => (
-              <div className="hbar" key={d.label} style={{ gridTemplateColumns: '28px 1fr 44px' }}>
-                <span className="n" style={{ textAlign: 'left' }}>{String(i + 1).padStart(2, '0')}</span>
-                <span className="name" style={{ color: 'var(--ink)' }}>{d.label}</span>
-                <span className="n">{d.n}</span>
-              </div>
+          <div className="year-picks-head">
+            <div>
+              <span className="mono">TOP 5 / MY YEAR IN DRAMAS</span>
+              <p>默认按评分排列。把真正舍不得忘记的五部，留在这里。</p>
+            </div>
+            <div className="year-picks-actions">
+              <button className="btn" onClick={() => setEditing(v => !v)}>{editing ? '收起编辑' : '编辑榜单'}</button>
+              <button className="btn primary" onClick={makeShare} disabled={sharing}>{sharing ? '生成中' : '生成分享长图'}</button>
+            </div>
+          </div>
+          <div className="year-picks-grid">
+            {topFive.map((d, i) => (
+              <article className={'year-pick-card rank-' + (i + 1)} key={`${i}-${d.id}`}>
+                <button className="year-pick-cover" onClick={() => onOpen(d)} title={`查看 ${d.title}`}>
+                  {d.cover ? <img src={d.cover} alt="" /> : <span>NO COVER</span>}
+                </button>
+                <div className="year-pick-copy">
+                  <span className="year-pick-rank">{String(i + 1).padStart(2, '0')}</span>
+                  <strong title={d.title}>{d.title}</strong>
+                  <span className="year-pick-cv">{d.cvs.filter(c => c.role_type === '主役').map(c => c.name).join(' · ') || '听完这一部的你'}</span>
+                  <span className="year-pick-score">{d.rating == null ? '—' : d.rating.toFixed(1)} <i>★</i></span>
+                </div>
+                {editing && (
+                  <select className="select year-pick-select" value={d.id} onChange={e => updatePick(i, Number(e.target.value))}>
+                    {ranked.map(option => <option value={option.id} key={option.id}>{option.title}{option.rating == null ? '' : ` · ${option.rating}`}</option>)}
+                  </select>
+                )}
+              </article>
             ))}
           </div>
+          <label className="year-note">
+            <span className="mono">年度私藏 / 会出现在分享长图中</span>
+            <textarea
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              placeholder="写一句想留给这一年的话…"
+              maxLength={96}
+            />
+          </label>
         </Box>
       )}
 
@@ -163,6 +266,19 @@ export function YearReport({
         <span className="folder-count">{dramas?.length ?? 0} 件</span>
         <Gallery dramas={dramas ?? []} onOpen={onOpen} empty="这一年还没有听完的剧" />
       </Box>
+
+      {share && (
+        <div className="share-backdrop" onClick={() => setShare(null)}>
+          <div className="share-box year-share-box" onClick={e => e.stopPropagation()}>
+            <div className="head">
+              <span className="t">{year} 年度总结</span>
+              <button className="btn primary" style={{ marginLeft: 'auto' }} onClick={download}>下载 PNG</button>
+              <button className="btn" onClick={() => setShare(null)}>关闭</button>
+            </div>
+            <div className="scroll"><img src={share} alt={`${year} 年度听剧总结分享长图`} /></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

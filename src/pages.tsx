@@ -13,12 +13,11 @@ type P = { onOpen: (d: Drama) => void; version: number };
 type DramaPage = { total: number; page: number; pageSize: number; pages: number; items: Drama[] };
 
 export const Head = ({
-  kicker, title, sub,
-}: { kicker: string; title: string; sub?: string }) => (
+  kicker, title,
+}: { kicker: string; title: string }) => (
   <div className="page-head">
     <div className="kicker">{kicker}</div>
     <h1>{title}</h1>
-    {sub && <p>{sub}</p>}
   </div>
 );
 
@@ -83,7 +82,6 @@ export function Home({ onOpen, version }: P) {
       <Head
         kicker="Now Playing"
         title="我正在听的剧"
-        sub="每日更新的有声书也在这里。它们每天都更，所以日程表七格都占，带「每日」记号。"
       />
 
       <Async<Drama[]> path="/api/views/listening" version={version}>
@@ -96,7 +94,7 @@ export function Home({ onOpen, version }: P) {
 
       <Async<Record<string, Drama[]>> path="/api/views/schedule" version={version}>
         {byDay => (
-          <Folder tab="本周更新" tone={1} note={`今天是${todayCn}。只排在听的剧；每日更新的每格都在。`}>
+          <Folder tab="本周更新" tone={1}>
             <div className="week">
               {WEEK.map(day => (
                 <div key={day} className={'day' + (day === todayCn ? ' today' : '')}>
@@ -135,7 +133,6 @@ export function Purchased({ onOpen, version }: P) {
       <Head
         kicker="Purchased"
         title="我的已购"
-        sub="花过钱的剧。顶上的标签舌切筛选；点卡片开详情改状态，改完自动保存。"
       />
       <StatusGallery
         path="/api/views/purchased"
@@ -154,7 +151,6 @@ export function Collection({ onOpen, version }: P) {
       <Head
         kicker="Collection"
         title="我的收藏"
-        sub="追了但还没买的剧，观望中。买了之后同步一次就会自动挪到「我的已购」。"
       />
       <StatusGallery
         path="/api/views/collection"
@@ -180,13 +176,11 @@ export function Rewatch({ onOpen, version }: P) {
       <Head
         kicker="Rewatch"
         title="重刷"
-        sub="「计划」是挑出来还没开始的，「库」是已经刷过几遍的。重刷不要改听完日期 —— 年度汇总只记初听。"
       />
       <TabbedFolder
         active={tab}
         onSelect={setTab}
         count={rows?.length}
-        note={tab === 'queue' ? '挑出来准备重刷、还没开始的' : '刷过不止一遍的'}
         tabs={[
           { key: 'queue', label: '重刷计划', n: queue?.length, tone: 5 },
           { key: 'lib', label: '重刷库', n: lib?.length, tone: 2 },
@@ -210,12 +204,11 @@ export function Lists({ onOpen, version }: P) {
 
   return (
     <>
-      <Head kicker="Picks & Charts" title="剧单榜单" sub="挑出来的好剧，和听书的排行。" />
+      <Head kicker="Picks & Charts" title="剧单榜单" />
       <TabbedFolder
         active={tab}
         onSelect={setTab}
         count={tab === 'five' ? rec?.五星.length : tab === 'good' ? rec?.优质.length : books?.length}
-        note={tab === 'book' ? '类别为「听书」的剧集，按评分排' : undefined}
         tabs={[
           { key: 'five', label: '五星', n: rec?.五星.length, tone: 4 },
           { key: 'good', label: '优质 4.8+', n: rec?.优质.length, tone: 1 },
@@ -272,10 +265,6 @@ export function Cv({ onOpen, version }: P) {
       <Head
         kicker="CV Index"
         title="CV"
-        sub={'只统计你标记为「听完」的剧 —— 追了没听、囤着、搁置、弃了的都不算。' +
-          (role === 'main'
-            ? '默认只算主役：猫耳给的是全体参演，一部剧十几二十位，全算进来排行就成了「谁跑龙套最多」。'
-            : '当前口径含全体参演。')}
       />
 
       <div className="toolbar">
@@ -285,7 +274,7 @@ export function Cv({ onOpen, version }: P) {
         </div>
       </div>
 
-      <Folder tab="CV 自查" tone={3} note="点一位 CV，看你听完过他的哪些剧">
+      <Folder tab="CV 自查" tone={3}>
         <div className="toolbar">
           <input
             className="input search" placeholder="搜 CV 名字…"
@@ -373,7 +362,6 @@ export function History({ onOpen, version }: P) {
       <Head
         kicker="History"
         title="听完的剧"
-        sub="按听完日期归档。重刷不会改这个日期，所以一部剧只会记在它初听的那一年。"
       />
       <TabbedFolder
         tabs={tabs}
@@ -403,7 +391,7 @@ export function Library({
   onOpen, version, onChanged,
 }: P & { onChanged: () => void }) {
   const [q, setQ] = useState('');
-  const [sort, setSort] = useState('updated');
+  const [sort, setSort] = useState('purchased');
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -445,7 +433,6 @@ export function Library({
       <Head
         kicker="Archive"
         title="剧集库"
-        sub="筛选项是从你自己的数据里数出来的 —— 加了新分类、新社团、新 CV 会自动出现。"
       />
 
       <div className="toolbar">
@@ -454,7 +441,8 @@ export function Library({
           value={q} onChange={e => setQ(e.target.value)}
         />
         <select className="select" value={sort} onChange={e => setSort(e.target.value)}>
-          <option value="updated">最近更新</option>
+          <option value="purchased">最新购入</option>
+          <option value="updated">最近修改</option>
           <option value="rating">评分</option>
           <option value="finished">听完日期</option>
           <option value="title">剧名</option>

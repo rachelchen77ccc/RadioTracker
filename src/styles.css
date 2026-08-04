@@ -1057,6 +1057,41 @@ section.folder[data-tone="5"] { --f: var(--f-lilac); --tab-w: 196px; }
 .onboarding-done span { color: var(--ink-2); font-size: 12.5px; line-height: 1.6; }
 .onboarding-done .btn { justify-self: start; margin-top: 4px; }
 
+.quick-connect {
+  margin-top: 18px; padding: 18px 20px;
+  border: 1px solid var(--rule); background: var(--f-sage);
+}
+.quick-connect-title { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
+.quick-connect-title .recommended {
+  padding: 2px 6px; background: var(--raspberry); color: #fff;
+  font-family: var(--mono); font-size: 9px; letter-spacing: .1em;
+}
+.quick-connect ol { margin: 0; padding-left: 22px; display: grid; gap: 13px; }
+.quick-connect li { padding-left: 4px; color: var(--ink-2); font-size: 13px; line-height: 1.7; }
+.quick-connect kbd {
+  padding: 1px 5px; border: 1px solid var(--rule); border-bottom-width: 2px;
+  background: var(--porcelain); font-family: var(--mono); font-size: 10px;
+}
+.quick-connect > p { margin: 14px 0 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.quick-connect a:not(.bookmarklet-button) { color: var(--raspberry); border-bottom: 1px solid currentColor; }
+.bookmarklet-button {
+  display: inline-block; margin: 7px 0 0; padding: 8px 12px;
+  border: 1px solid var(--raspberry); background: var(--porcelain);
+  color: var(--raspberry); font-weight: 650; cursor: grab;
+}
+.bookmarklet-button:active { cursor: grabbing; }
+
+.quick-connect-status {
+  display: flex; align-items: flex-start; gap: 12px; margin-top: 20px; padding: 18px;
+  border: 1px solid var(--rule); background: var(--f-blush);
+}
+.quick-connect-status .dot { width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: var(--raspberry); animation: pulse 1.1s ease-in-out infinite; }
+.quick-connect-status p { margin: 4px 0 0; color: var(--ink-2); font-size: 12.5px; }
+
+.manual-connect { margin-top: 16px; border-top: 1px solid var(--rule); padding-top: 14px; }
+.manual-connect summary { color: var(--muted); font-size: 12px; cursor: pointer; }
+.manual-connect[open] summary { margin-bottom: 14px; color: var(--ink-2); }
+
 .sync-steps { margin: 0; padding-left: 20px; display: grid; gap: 20px; }
 .sync-steps li { padding-left: 4px; }
 .sync-steps li::marker { font-family: var(--mono); font-size: 11px; color: var(--muted); }

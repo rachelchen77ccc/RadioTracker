@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { appFetch } from '../cloud/supabase';
+import {
+  clearPendingMissevanCookie,
+  missevanBookmarklet,
+  pendingMissevanCookie,
+} from '../cloud/missevanConnect';
 
 /**
  * 同步面板。
@@ -33,20 +38,28 @@ export function SyncPanel({
   /** 新账号第一次进入：显示完整引导，关联后立即跑首次同步 */
   firstRun?: boolean;
 }) {
+  const incomingCookie = useRef(pendingMissevanCookie());
   const [job, setJob] = useState<Job | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [cookie, setCookie] = useState('');
+  const [cookie, setCookie] = useState(incomingCookie.current);
   const [userId, setUserId] = useState('');
   const [setup, setSetup] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [autoConnecting, setAutoConnecting] = useState(Boolean(incomingCookie.current));
   const [err, setErr] = useState<string | null>(null);
   const logRef = useRef<HTMLPreElement>(null);
   const doneRef = useRef<string | null>(null);
+  const bookmarkletRef = useRef<HTMLAnchorElement>(null);
+  const bookmarklet = missevanBookmarklet();
 
   const loadSession = () =>
     appFetch('/api/sync/session').then(r => r.json()).then(setSession).catch(() => {});
 
   useEffect(() => { loadSession(); }, []);
+
+  useEffect(() => {
+    bookmarkletRef.current?.setAttribute('href', bookmarklet);
+  }, [bookmarklet]);
 
   useEffect(() => {
     let alive = true;
@@ -87,12 +100,22 @@ export function SyncPanel({
       });
       const j = await res.json();
       if (!res.ok) { setErr(j.error ?? '存不下'); return; }
+      clearPendingMissevanCookie();
       setCookie(''); setUserId(''); setSetup(false);
       await loadSession();
     } finally {
-      setBusy(false);
+      setBusy(false); setAutoConnecting(false);
     }
   };
+
+  const consumedIncomingCookie = useRef(false);
+  useEffect(() => {
+    if (consumedIncomingCookie.current || !incomingCookie.current || !session) return;
+    consumedIncomingCookie.current = true;
+    saveSession();
+    // 只消费从猫耳书签跳回来的那一次。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
 
   const forget = async () => {
     await appFetch('/api/sync/session', { method: 'DELETE' });
@@ -146,7 +169,17 @@ export function SyncPanel({
           </div>
         )}
 
-        {ready && !setup && (
+        {autoConnecting && (
+          <div className="quick-connect-status">
+            <span className="dot on" />
+            <div>
+              <strong>正在验证猫耳账号…</strong>
+              <p>验证成功后会自动开始同步，不需要再操作。</p>
+            </div>
+          </div>
+        )}
+
+        {!autoConnecting && ready && !setup && (
           <>
             <p style={{ margin: '0 0 20px', color: 'var(--ink-2)', fontSize: 13 }}>
               {firstRun ? '账号已经关联。接下来会拉取你的已购和追剧，并补齐剧目资料。' : '拉取已购和追剧 → 合并标记 → 补新剧的 CV 分类集数 → 缓存封面。'}
@@ -176,61 +209,89 @@ export function SyncPanel({
           </>
         )}
 
-        {(!ready || setup) && (
+        {!autoConnecting && (!ready || setup) && (
           <>
             <p style={{ margin: '0 0 6px', color: 'var(--ink-2)', fontSize: 13 }}>
               {firstRun
                 ? '先关联猫耳账号，保存成功后会立即开始第一次同步。'
                 : '第一次要贴一段登录凭据，之后就只用点「开始同步」。'}
             </p>
-            <p className="warn">
-              这段 cookie 等同于你的猫耳登录态。网页部署后会先加密再保存，
-              不会发给其他用户，也不会进入 GitHub。它会过期，失效时同步会明确报错、
-              不会静默同步出空数据。
-            </p>
-
-            <ol className="sync-steps">
-              <li>
-                <div className="t">在已登录的猫耳页面打开控制台</div>
-                <div className="d">
-                  <a href="https://www.missevan.com/" target="_blank" rel="noreferrer">missevan.com</a>
-                  {' '}→ F12 → Console
-                </div>
-              </li>
-              <li>
-                <div className="t">跑这一行，把结果贴到下面</div>
-                <pre className="snippet">copy(document.cookie)</pre>
-                <div className="d">它会把 cookie 复制到剪贴板（控制台会显示 undefined，正常）。</div>
-              </li>
-            </ol>
-
-            <textarea
-              className="input"
-              style={{ width: '100%', minHeight: 84, marginTop: 12, fontSize: 12 }}
-              placeholder="在这里粘贴 cookie…"
-              value={cookie}
-              onChange={e => setCookie(e.target.value)}
-            />
-            {!/muid=\d+/.test(cookie) && cookie.trim() !== '' && (
-              <input
-                className="input"
-                style={{ width: '100%', marginTop: 8 }}
-                placeholder="cookie 里没有 muid，请填你的猫耳用户 ID（个人主页链接里那串数字）"
-                value={userId}
-                onChange={e => setUserId(e.target.value)}
-              />
-            )}
-
-            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-              <button
-                className="btn primary"
-                onClick={saveSession}
-                disabled={busy || !cookie.trim()}
-              >
-                {busy ? '验证中…' : firstRun ? '关联并开始同步' : '验证并保存'}
-              </button>
-              {setup && <button className="btn" onClick={() => setSetup(false)}>取消</button>}
+            <div className="quick-connect">
+              <div className="quick-connect-title">
+                <span className="recommended">推荐</span>
+                <strong>一键关联，不用打开控制台</strong>
+              </div>
+              <ol>
+                <li>按 <kbd>⌘⇧B</kbd>（Windows 用 <kbd>Ctrl+Shift+B</kbd>）显示书签栏。</li>
+                <li>
+                  把下面的按钮<b>拖到书签栏</b>：
+                  <a
+                    ref={bookmarkletRef}
+                    className="bookmarklet-button"
+                    href="#"
+                    draggable
+                    onClick={event => {
+                      event.preventDefault();
+                      setErr('请把“一键关联 RadioTracker”拖到浏览器书签栏，不要在这里直接点击。');
+                    }}
+                  >
+                    一键关联 RadioTracker
+                  </a>
+                </li>
+                <li>
+                  打开并登录 <a href="https://www.missevan.com/" target="_blank" rel="noreferrer">猫耳网页</a>，
+                  点击刚保存的书签。页面会自动返回这里并开始同步。
+                </li>
+              </ol>
+              <p>书签本身不包含账号信息；只有你在猫耳页面点击时，才会读取当前登录态。</p>
             </div>
+
+            <details className="manual-connect">
+              <summary>书签无法使用？改用手动关联</summary>
+              <p className="warn">
+                这段 cookie 等同于你的猫耳登录态。网页部署后会先加密再保存，
+                不会发给其他用户，也不会进入 GitHub。它会过期，失效时同步会明确报错。
+              </p>
+
+              <ol className="sync-steps">
+                <li>
+                  <div className="t">在已登录的猫耳页面打开控制台</div>
+                  <div className="d">missevan.com → F12 → Console</div>
+                </li>
+                <li>
+                  <div className="t">运行这一行，把结果贴到下面</div>
+                  <pre className="snippet">copy(document.cookie)</pre>
+                </li>
+              </ol>
+
+              <textarea
+                className="input"
+                style={{ width: '100%', minHeight: 84, marginTop: 12, fontSize: 12 }}
+                placeholder="在这里粘贴 cookie…"
+                value={cookie}
+                onChange={e => setCookie(e.target.value)}
+              />
+              {!/muid=\d+/.test(cookie) && cookie.trim() !== '' && (
+                <input
+                  className="input"
+                  style={{ width: '100%', marginTop: 8 }}
+                  placeholder="cookie 里没有 muid，请填你的猫耳用户 ID（个人主页链接里那串数字）"
+                  value={userId}
+                  onChange={e => setUserId(e.target.value)}
+                />
+              )}
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <button
+                  className="btn primary"
+                  onClick={saveSession}
+                  disabled={busy || !cookie.trim()}
+                >
+                  {busy ? '验证中…' : firstRun ? '关联并开始同步' : '验证并保存'}
+                </button>
+                {setup && <button className="btn" onClick={() => setSetup(false)}>取消</button>}
+              </div>
+            </details>
           </>
         )}
 

@@ -16,3 +16,13 @@ test('Postgres 的 bigint 和统计数字会变成前端可用的 number', () =>
     title: '24格的谎言',
   });
 });
+
+test('Postgres 的 date 会变成日期输入框可识别的 YYYY-MM-DD', () => {
+  assert.deepEqual(__test.normalizeRow({
+    finished_date: new Date('2026-05-29T00:00:00.000Z'),
+    updated_at: new Date('2026-05-29T08:30:00.000Z'),
+  }), {
+    finished_date: '2026-05-29',
+    updated_at: '2026-05-29T08:30:00.000Z',
+  });
+});

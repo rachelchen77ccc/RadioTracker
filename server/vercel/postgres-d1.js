@@ -10,6 +10,10 @@ const NUMERIC_COLUMNS = new Set([
 function normalizeRow(row) {
   if (!row) return row;
   return Object.fromEntries(Object.entries(row).map(([key, value]) => {
+    if (value instanceof Date) {
+      const iso = value.toISOString();
+      return [key, key.endsWith('_date') ? iso.slice(0, 10) : iso];
+    }
     if (typeof value === 'bigint') return [key, Number(value)];
     if (NUMERIC_COLUMNS.has(key) && typeof value === 'string' && value !== '' && Number.isFinite(Number(value))) {
       return [key, Number(value)];

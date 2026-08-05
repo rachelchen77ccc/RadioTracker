@@ -50,6 +50,12 @@ function shape(row, env) {
     : null;
   return {
     ...row,
+    // Postgres 的 date 会被驱动转成 Date，JSON 后变成带时间的 ISO 字符串；
+    // <input type="date"> 只接受 YYYY-MM-DD，所以在 API 边界统一压回日期格式。
+    finished_date: row.finished_date == null ? null
+      : row.finished_date instanceof Date
+        ? row.finished_date.toISOString().slice(0, 10)
+        : String(row.finished_date).slice(0, 10),
     categories,
     purchased: Boolean(row.purchased),
     subscribed: Boolean(row.subscribed),
@@ -115,6 +121,116 @@ async function decryptCookie(record, env) {
     base64Decode(record.credential_ciphertext),
   );
   return new TextDecoder().decode(decrypted);
+}
+
+const LOGIN_STATE_AAD = 'radiotracker:missevan-login:v1';
+
+function base64UrlEncode(bytes) {
+  return base64Encode(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64UrlDecode(value) {
+  const normalized = String(value).replace(/-/g, '+').replace(/_/g, '/');
+  return base64Decode(normalized + '='.repeat((4 - normalized.length % 4) % 4));
+}
+
+async function sealLoginState(value, env) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv, additionalData: new TextEncoder().encode(LOGIN_STATE_AAD) },
+    await credentialKey(env),
+    new TextEncoder().encode(JSON.stringify(value)),
+  );
+  return `${base64UrlEncode(iv)}.${base64UrlEncode(new Uint8Array(encrypted))}`;
+}
+
+async function openLoginState(token, env, userId) {
+  const [ivText, encryptedText] = String(token || '').split('.');
+  if (!ivText || !encryptedText) throw new Error('登录流程已失效，请重新获取验证码');
+  try {
+    const decrypted = await crypto.subtle.decrypt(
+      {
+        name: 'AES-GCM',
+        iv: base64UrlDecode(ivText),
+        additionalData: new TextEncoder().encode(LOGIN_STATE_AAD),
+      },
+      await credentialKey(env),
+      base64UrlDecode(encryptedText),
+    );
+    const state = JSON.parse(new TextDecoder().decode(decrypted));
+    if (!state?.cookie || state.userId !== userId || Number(state.expiresAt) < Date.now()) {
+      throw new Error('登录流程已失效，请重新获取验证码');
+    }
+    return state;
+  } catch (error) {
+    if (/登录流程已失效/.test(String(error?.message || error))) throw error;
+    throw new Error('登录流程已失效，请重新获取验证码');
+  }
+}
+
+function splitSetCookieHeader(header) {
+  if (!header) return [];
+  return String(header).split(/,(?=\s*[^;,=\s]+=[^;,]*)/g);
+}
+
+function mergeCookieJar(cookie, response) {
+  const jar = new Map();
+  for (const part of String(cookie || '').split(';')) {
+    const trimmed = part.trim();
+    const index = trimmed.indexOf('=');
+    if (index > 0) jar.set(trimmed.slice(0, index), trimmed.slice(index + 1));
+  }
+  const values = typeof response.headers.getSetCookie === 'function'
+    ? response.headers.getSetCookie()
+    : splitSetCookieHeader(response.headers.get('set-cookie'));
+  for (const value of values) {
+    const pair = String(value).split(';', 1)[0].trim();
+    const index = pair.indexOf('=');
+    if (index > 0) jar.set(pair.slice(0, index), pair.slice(index + 1));
+  }
+  return [...jar].map(([name, value]) => `${name}=${value}`).join('; ');
+}
+
+function missevanMessage(payload, fallback) {
+  const info = payload?.info;
+  if (Array.isArray(info)) {
+    const message = info.map(item => item?.message).filter(Boolean).join('；');
+    if (message) return message;
+  }
+  if (typeof info === 'string') return info;
+  return info?.message || payload?.message || fallback;
+}
+
+async function missevanAuthJson(url, { cookie = '', body } = {}) {
+  const response = await fetch(url, {
+    method: body ? 'POST' : 'GET',
+    headers: {
+      ...(body ? { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' } : {}),
+      ...(cookie ? { Cookie: cookie } : {}),
+      Accept: 'application/json',
+      Referer: 'https://www.missevan.com/member/login',
+      'User-Agent': 'Mozilla/5.0',
+    },
+    ...(body ? { body: new URLSearchParams(body).toString() } : {}),
+  });
+  const nextCookie = mergeCookieJar(cookie, response);
+  const text = await response.text();
+  let payload;
+  try { payload = JSON.parse(text); } catch { throw new Error(`猫耳登录接口 HTTP ${response.status}`); }
+  if (!response.ok) throw new Error(missevanMessage(payload, `猫耳登录接口 HTTP ${response.status}`));
+  return { payload, cookie: nextCookie };
+}
+
+function findMissevanUserId(payload, cookie) {
+  const match = /(?:^|;\s*)muid=(\d+)/.exec(cookie || '');
+  if (match) return match[1];
+  const info = payload?.info || {};
+  const candidates = [
+    info.id, info.user_id, info.userid, info.muid,
+    info.user?.id, info.user?.user_id, info.user?.userid, info.user?.muid,
+  ];
+  const value = candidates.find(item => /^\d+$/.test(String(item || '')));
+  return value == null ? null : String(value);
 }
 
 async function setCvNames(env, userId, dramaId, names) {
@@ -706,8 +822,97 @@ async function syncUser(env, userId, suppliedLists = null) {
   }
 }
 
+async function handleMissevanLogin(request, env, userId, path) {
+  const prefix = '/api/sync/missevan-login/';
+  if (!path.startsWith(prefix) || request.method !== 'POST') return null;
+
+  if (path === `${prefix}challenge`) {
+    try {
+      const result = await missevanAuthJson('https://www.missevan.com/x/captcha/challenge?scene=login');
+      const params = result.payload?.info?.params;
+      if (result.payload?.code !== 0 || result.payload?.info?.type !== 'geetest' || !params?.gt || !params?.challenge) {
+        throw new Error(missevanMessage(result.payload, '暂时无法打开猫耳滑块验证'));
+      }
+      return json({
+        gt: params.gt,
+        challenge: params.challenge,
+        offline: Boolean(params.offline),
+        loginState: await sealLoginState({ userId, cookie: result.cookie, expiresAt: Date.now() + 10 * 60 * 1000 }, env),
+      });
+    } catch (error) {
+      return json({ error: String(error.message || error) }, 400);
+    }
+  }
+
+  const body = await request.json().catch(() => ({}));
+  const phone = String(body.phone || '').replace(/\s+/g, '');
+  if (!/^\d{6,20}$/.test(phone)) return json({ error: '请输入正确的手机号' }, 400);
+
+  let state;
+  try { state = await openLoginState(body.loginState, env, userId); }
+  catch (error) { return json({ error: String(error.message || error) }, 400); }
+
+  if (path === `${prefix}send-code`) {
+    const captchaToken = String(body.captchaToken || '').trim();
+    if (!captchaToken) return json({ error: '请先完成滑块验证' }, 400);
+    try {
+      const result = await missevanAuthJson('https://www.missevan.com/account/sendcode', {
+        cookie: state.cookie,
+        body: { login_name: phone, post_type: '16', region: 'CN', captcha_token: captchaToken },
+      });
+      if (result.payload?.success !== true && result.payload?.code !== 0) {
+        throw new Error(missevanMessage(result.payload, '验证码发送失败'));
+      }
+      return json({
+        ok: true,
+        loginState: await sealLoginState({ userId, cookie: result.cookie, expiresAt: Date.now() + 10 * 60 * 1000 }, env),
+      });
+    } catch (error) {
+      return json({ error: String(error.message || error) }, 400);
+    }
+  }
+
+  if (path === `${prefix}verify-code`) {
+    const code = String(body.code || '').trim();
+    if (!/^\d{6}$/.test(code)) return json({ error: '请输入 6 位短信验证码' }, 400);
+    try {
+      const signedIn = await missevanAuthJson('https://www.missevan.com/account/smslogin', {
+        cookie: state.cookie,
+        body: { mobile: phone, identify_code: code, remember_me: '1', region: 'CN' },
+      });
+      if (signedIn.payload?.success !== true && signedIn.payload?.code !== 0) {
+        throw new Error(missevanMessage(signedIn.payload, '验证码不正确或已过期'));
+      }
+
+      const account = await missevanAuthJson('https://www.missevan.com/account/userinfo', {
+        cookie: signedIn.cookie,
+      });
+      if (account.payload?.success !== true || Number(account.payload?.code || 0) === 100010006) {
+        throw new Error(missevanMessage(account.payload, '猫耳登录没有成功，请重试'));
+      }
+      const missevanUserId = findMissevanUserId(account.payload, account.cookie);
+      if (!missevanUserId) throw new Error('已登录，但没有读取到猫耳用户 ID');
+
+      const probe = await missevanJson('https://www.missevan.com/mperson/getdramabought?page=1&page_size=1', account.cookie);
+      if (typeof probe?.info?.pagination?.count !== 'number') throw new Error('猫耳登录没有成功，请重试');
+      const encrypted = await encryptCookie(account.cookie, env);
+      await run(env, `INSERT INTO user_missevan_credentials (user_id, missevan_user_id, credential_ciphertext, credential_iv, saved_at)
+        VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET missevan_user_id=excluded.missevan_user_id,
+        credential_ciphertext=excluded.credential_ciphertext, credential_iv=excluded.credential_iv, saved_at=excluded.saved_at`,
+      [userId, missevanUserId, encrypted.ciphertext, encrypted.iv, now()]);
+      return json({ ok: true, userId: missevanUserId, bought: probe.info.pagination.count });
+    } catch (error) {
+      return json({ error: String(error.message || error) }, 400);
+    }
+  }
+
+  return json({ error: '接口不存在' }, 404);
+}
+
 async function handleSync(request, env, ctx, userId, url) {
   const path = url.pathname;
+  const loginResponse = await handleMissevanLogin(request, env, userId, path);
+  if (loginResponse) return loginResponse;
   if (path === '/api/sync/session' && request.method === 'GET') {
     const record = await first(env, 'SELECT missevan_user_id, saved_at FROM user_missevan_credentials WHERE user_id = ?', [userId]);
     return json({ hasSession: Boolean(record), userId: record?.missevan_user_id || null, savedAt: record?.saved_at || null });

@@ -114,3 +114,74 @@ test('多用户模式下未登录不能访问 API', async () => {
   const response = await worker.fetch(new Request('https://example.test/api/stats'), testEnv(), { waitUntil() {} });
   assert.equal(response.status, 401);
 });
+
+test('猫耳短信验证码登录后只保存会话并关联当前用户', async () => {
+  const env = testEnv();
+  const ctx = { waitUntil() {} };
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    if (String(url).includes('/x/captcha/challenge')) {
+      return new Response(JSON.stringify({ code: 0, info: { type: 'geetest', params: {
+        gt: 'gt-test', challenge: 'challenge-test', offline: false,
+      } } }), { headers: { 'content-type': 'application/json', 'set-cookie': 'MSESSID=prelogin; Path=/; HttpOnly' } });
+    }
+    if (String(url).includes('/account/sendcode')) {
+      return new Response(JSON.stringify({ success: true, code: 0 }), {
+        headers: { 'content-type': 'application/json', 'set-cookie': 'MSESSID=after-code; Path=/; HttpOnly' },
+      });
+    }
+    if (String(url).includes('/account/smslogin')) {
+      return new Response(JSON.stringify({ success: true, code: 0 }), {
+        headers: { 'content-type': 'application/json', 'set-cookie': 'auth_token=secret-session; Path=/; HttpOnly' },
+      });
+    }
+    if (String(url).includes('/account/userinfo')) {
+      return new Response(JSON.stringify({ success: true, code: 0, info: { id: 31571121 } }), {
+        headers: { 'content-type': 'application/json', 'set-cookie': 'muid=31571121; Path=/' },
+      });
+    }
+    if (String(url).includes('/mperson/getdramabought')) {
+      return new Response(JSON.stringify({ info: { data: [], pagination: { count: 0, maxpage: 1 } } }), {
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+
+  try {
+    const challengeResponse = await worker.fetch(apiRequest('/api/sync/missevan-login/challenge', 'new@example.com', {
+      method: 'POST', body: '{}',
+    }), env, ctx);
+    const challenge = await challengeResponse.json();
+    assert.equal(challengeResponse.status, 200);
+    assert.equal(challenge.gt, 'gt-test');
+    assert.ok(challenge.loginState);
+
+    const sendResponse = await worker.fetch(apiRequest('/api/sync/missevan-login/send-code', 'new@example.com', {
+      method: 'POST', body: JSON.stringify({
+        phone: '13800138000', captchaToken: 'geetest|a|b|c', loginState: challenge.loginState,
+      }),
+    }), env, ctx);
+    const sent = await sendResponse.json();
+    assert.equal(sendResponse.status, 200, JSON.stringify(sent));
+
+    const verifyResponse = await worker.fetch(apiRequest('/api/sync/missevan-login/verify-code', 'new@example.com', {
+      method: 'POST', body: JSON.stringify({ phone: '13800138000', code: '123456', loginState: sent.loginState }),
+    }), env, ctx);
+    const verified = await verifyResponse.json();
+    assert.equal(verifyResponse.status, 200, JSON.stringify(verified));
+    assert.equal(verified.userId, '31571121');
+
+    const sessionResponse = await worker.fetch(apiRequest('/api/sync/session', 'new@example.com'), env, ctx);
+    const session = await sessionResponse.json();
+    assert.deepEqual({ hasSession: session.hasSession, userId: session.userId }, {
+      hasSession: true, userId: '31571121',
+    });
+    assert.match(String(calls.find(call => call.url.includes('/account/smslogin'))?.init.headers.Cookie), /MSESSID=after-code/);
+    assert.equal(JSON.stringify(session).includes('13800138000'), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

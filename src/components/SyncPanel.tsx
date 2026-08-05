@@ -2,16 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { appFetch } from '../cloud/supabase';
 import {
   clearPendingMissevanCookie,
-  missevanBookmarklet,
   pendingMissevanCookie,
 } from '../cloud/missevanConnect';
+import { verifyMissevanCaptcha } from '../cloud/missevanLogin';
 
 /**
  * 同步面板。
  *
  * 存过登录态之后就只有一个按钮 —— 拉列表、合并、补详情、缓存封面全在服务端跑。
- * 第一次要贴一段 cookie，因为「已购 / 追剧」两个接口需要登录态，
- * 而猫耳站点的 CSP 挡死了从它页面直接把数据送回本地。
+ * 第一次通过猫耳的手机号、滑块和短信验证码建立登录态。
  *
  * 云端会加密存入当前网页账号自己的凭据记录；接口只回「有没有」，
  * 从不把 cookie 原文传回浏览器。
@@ -46,11 +45,14 @@ export function SyncPanel({
   const [setup, setSetup] = useState(false);
   const [busy, setBusy] = useState(false);
   const [autoConnecting, setAutoConnecting] = useState(Boolean(incomingCookie.current));
+  const [phone, setPhone] = useState('');
+  const [smsCode, setSmsCode] = useState('');
+  const [loginState, setLoginState] = useState('');
+  const [loginStep, setLoginStep] = useState<'phone' | 'code'>('phone');
+  const [countdown, setCountdown] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const logRef = useRef<HTMLPreElement>(null);
   const doneRef = useRef<string | null>(null);
-  const bookmarkletRef = useRef<HTMLAnchorElement>(null);
-  const bookmarklet = missevanBookmarklet();
 
   const loadSession = () =>
     appFetch('/api/sync/session').then(r => r.json()).then(setSession).catch(() => {});
@@ -58,8 +60,10 @@ export function SyncPanel({
   useEffect(() => { loadSession(); }, []);
 
   useEffect(() => {
-    bookmarkletRef.current?.setAttribute('href', bookmarklet);
-  }, [bookmarklet]);
+    if (countdown <= 0) return;
+    const id = window.setTimeout(() => setCountdown(value => value - 1), 1000);
+    return () => window.clearTimeout(id);
+  }, [countdown]);
 
   useEffect(() => {
     let alive = true;
@@ -130,6 +134,62 @@ export function SyncPanel({
       body: '{}',
     });
     if (!res.ok) setErr((await res.json().catch(() => ({}))).error ?? '起不来');
+  };
+
+  const responseJson = async (response: Response) => {
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || '猫耳登录暂时不可用');
+    return payload;
+  };
+
+  const sendSmsCode = async () => {
+    const normalizedPhone = phone.replace(/\s+/g, '');
+    if (!/^\d{6,20}$/.test(normalizedPhone)) {
+      setErr('请输入正确的手机号');
+      return;
+    }
+    setBusy(true); setErr(null);
+    try {
+      const challenge = await responseJson(await appFetch('/api/sync/missevan-login/challenge', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      }));
+      const captchaToken = await verifyMissevanCaptcha(challenge);
+      const result = await responseJson(await appFetch('/api/sync/missevan-login/send-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: normalizedPhone, captchaToken, loginState: challenge.loginState }),
+      }));
+      setPhone(normalizedPhone);
+      setLoginState(result.loginState);
+      setLoginStep('code');
+      setCountdown(60);
+    } catch (error) {
+      setErr(String((error as Error).message || error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const verifySmsCode = async () => {
+    if (!/^\d{6}$/.test(smsCode.trim())) {
+      setErr('请输入 6 位短信验证码');
+      return;
+    }
+    setBusy(true); setErr(null);
+    try {
+      await responseJson(await appFetch('/api/sync/missevan-login/verify-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, code: smsCode.trim(), loginState }),
+      }));
+      setSmsCode(''); setLoginState(''); setLoginStep('phone'); setSetup(false);
+      await loadSession();
+      await start();
+    } catch (error) {
+      setErr(String((error as Error).message || error));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const running = !!job?.running;
@@ -213,41 +273,76 @@ export function SyncPanel({
           <>
             <p style={{ margin: '0 0 6px', color: 'var(--ink-2)', fontSize: 13 }}>
               {firstRun
-                ? '先关联猫耳账号，保存成功后会立即开始第一次同步。'
-                : '第一次要贴一段登录凭据，之后就只用点「开始同步」。'}
+                ? '用猫耳短信验证码完成关联，成功后会立即开始第一次同步。'
+                : '重新验证猫耳账号，成功后会立即继续同步。'}
             </p>
-            <div className="quick-connect">
-              <div className="quick-connect-title">
+            <div className="phone-connect">
+              <div className="phone-connect-head">
                 <span className="recommended">推荐</span>
-                <strong>一键关联，不用打开控制台</strong>
+                <strong>手机号验证码登录</strong>
               </div>
-              <ol>
-                <li>按 <kbd>⌘⇧B</kbd>（Windows 用 <kbd>Ctrl+Shift+B</kbd>）显示书签栏。</li>
-                <li>
-                  把下面的按钮<b>拖到书签栏</b>：
-                  <a
-                    ref={bookmarkletRef}
-                    className="bookmarklet-button"
-                    href="#"
-                    draggable
-                    onClick={event => {
-                      event.preventDefault();
-                      setErr('请把“一键关联 RadioTracker”拖到浏览器书签栏，不要在这里直接点击。');
-                    }}
-                  >
-                    一键关联 RadioTracker
-                  </a>
-                </li>
-                <li>
-                  打开并登录 <a href="https://www.missevan.com/" target="_blank" rel="noreferrer">猫耳网页</a>，
-                  点击刚保存的书签。页面会自动返回这里并开始同步。
-                </li>
-              </ol>
-              <p>书签本身不包含账号信息；只有你在猫耳页面点击时，才会读取当前登录态。</p>
+
+              {loginStep === 'phone' ? (
+                <>
+                  <label className="auth-field">
+                    <span>猫耳手机号</span>
+                    <div className="phone-input-row">
+                      <span className="region-code">+86</span>
+                      <input
+                        className="input"
+                        inputMode="tel"
+                        autoComplete="tel"
+                        placeholder="请输入手机号"
+                        value={phone}
+                        onChange={event => setPhone(event.target.value.replace(/[^\d\s]/g, ''))}
+                        onKeyDown={event => event.key === 'Enter' && sendSmsCode()}
+                      />
+                    </div>
+                  </label>
+                  <button className="btn primary big" onClick={sendSmsCode} disabled={busy || !phone.trim()}>
+                    {busy ? '正在打开安全验证…' : '获取短信验证码'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="code-sent">
+                    验证码已发送至 +86 {phone}
+                    <button className="linkish" onClick={() => { setLoginStep('phone'); setSmsCode(''); setLoginState(''); }}>
+                      修改手机号
+                    </button>
+                  </div>
+                  <label className="auth-field">
+                    <span>6 位短信验证码</span>
+                    <div className="code-input-row">
+                      <input
+                        className="input"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        maxLength={6}
+                        placeholder="请输入验证码"
+                        value={smsCode}
+                        onChange={event => setSmsCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                        onKeyDown={event => event.key === 'Enter' && verifySmsCode()}
+                        autoFocus
+                      />
+                      <button className="btn" onClick={sendSmsCode} disabled={busy || countdown > 0}>
+                        {countdown > 0 ? `${countdown}s 后重发` : '重新发送'}
+                      </button>
+                    </div>
+                  </label>
+                  <button className="btn primary big" onClick={verifySmsCode} disabled={busy || smsCode.length !== 6}>
+                    {busy ? '正在关联…' : '关联并开始同步'}
+                  </button>
+                </>
+              )}
+
+              <p className="privacy-note">
+                手机号和验证码只用于这一次猫耳登录，不会保存；关联成功后仅加密保存猫耳会话。
+              </p>
             </div>
 
             <details className="manual-connect">
-              <summary>书签无法使用？改用手动关联</summary>
+              <summary>验证码登录暂时不可用？使用旧版手动关联</summary>
               <p className="warn">
                 这段 cookie 等同于你的猫耳登录态。网页部署后会先加密再保存，
                 不会发给其他用户，也不会进入 GitHub。它会过期，失效时同步会明确报错。
@@ -304,7 +399,7 @@ export function SyncPanel({
               <span className="mono">{job.step ?? '待命'}</span>
               {job.error && <span className="err">{job.error}</span>}
               {job.expired && (
-                <button className="linkish" onClick={() => setSetup(true)}>重新贴 cookie</button>
+                <button className="linkish" onClick={() => setSetup(true)}>重新验证猫耳</button>
               )}
             </div>
             <pre ref={logRef} className="log">{job.log.join('\n')}</pre>

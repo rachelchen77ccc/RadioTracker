@@ -22,6 +22,7 @@ app.use('/covers', express.static(COVER_DIR));
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 // 开发时刻意不读 PORT（它可能是 Vite 的端口）；部署平台则统一使用 PORT。
 const PORT = process.env.API_PORT || (IS_PRODUCTION ? process.env.PORT : null) || 5174;
+const todayInChina = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
 
 /** 把 DB 行整成前端友好的形状 */
 const shape = r => r && ({
@@ -480,7 +481,7 @@ app.post('/api/dramas', (req, res) => {
     heard_episodes: heardEpisodes,
     total_episodes: totalEpisodes,
     rating: b.rating ?? null,
-    finished_date: b.finished_date ?? null,
+    finished_date: b.finished_date ?? (b.status === '听完' ? todayInChina() : null),
     rewatch_status: b.rewatch_status ?? null,
     review: b.review ?? null,
     serialize_status: b.serialize_status ?? null,
@@ -532,10 +533,10 @@ app.patch('/api/dramas/bulk', (req, res) => {
   const info = stmt.run(...vals, ...ids.map(Number));
   if (status === '听完') {
     db.prepare(`
-      UPDATE dramas SET heard_episodes = total_episodes
-      WHERE total_episodes IS NOT NULL
-        AND id IN (${ids.map(() => '?').join(',')})
-    `).run(...ids.map(Number));
+      UPDATE dramas SET heard_episodes = total_episodes,
+        finished_date = COALESCE(finished_date, ?)
+      WHERE id IN (${ids.map(() => '?').join(',')})
+    `).run(todayInChina(), ...ids.map(Number));
   }
   res.json({ updated: info.changes });
 });
@@ -567,6 +568,10 @@ app.patch('/api/dramas/:id', (req, res) => {
       .run({ ...args, id: Number(req.params.id) });
   }
   if (Array.isArray(b.cvNames)) setCvNames(Number(req.params.id), b.cvNames);
+  if (b.status === '听完' && b.finished_date === undefined) {
+    db.prepare('UPDATE dramas SET finished_date = COALESCE(finished_date, ?) WHERE id = ?')
+      .run(todayInChina(), Number(req.params.id));
+  }
   // 选「听完」或修改一部已听完剧的总集数时，进度始终跟着拉满。
   db.prepare(`
     UPDATE dramas SET heard_episodes = total_episodes

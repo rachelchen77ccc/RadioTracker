@@ -185,3 +185,30 @@ test('猫耳短信验证码登录后只保存会话并关联当前用户', async
     globalThis.fetch = originalFetch;
   }
 });
+
+test('听完日期会自动生成年度标签，标记听完时会补当天日期', async () => {
+  const env = testEnv();
+  const ctx = { waitUntil() {} };
+  await worker.fetch(apiRequest('/api/admin/import', 'history@example.com', {
+    method: 'POST', body: JSON.stringify({ bundle }),
+  }), env, ctx);
+
+  const dated = await worker.fetch(apiRequest('/api/dramas/1', 'history@example.com', {
+    method: 'PATCH', body: JSON.stringify({ status: '听完', finished_date: '2025-01-02' }),
+  }), env, ctx);
+  assert.equal(dated.status, 200);
+
+  const yearsResponse = await worker.fetch(apiRequest('/api/years', 'history@example.com'), env, ctx);
+  const years = await yearsResponse.json();
+  assert.deepEqual(years.map(row => ({ year: row.year, count: row.count })), [{ year: '2025', count: 1 }]);
+
+  const createdResponse = await worker.fetch(apiRequest('/api/dramas', 'history@example.com', {
+    method: 'POST', body: JSON.stringify({ title: '今天听完', status: '在听' }),
+  }), env, ctx);
+  const created = await createdResponse.json();
+  const finishedResponse = await worker.fetch(apiRequest(`/api/dramas/${created.id}`, 'history@example.com', {
+    method: 'PATCH', body: JSON.stringify({ status: '听完' }),
+  }), env, ctx);
+  const finished = await finishedResponse.json();
+  assert.match(finished.finished_date, /^\d{4}-\d{2}-\d{2}$/);
+});

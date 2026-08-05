@@ -18,6 +18,7 @@ const json = (value, status = 200) => new Response(JSON.stringify(value), {
 
 const empty = (status = 204) => new Response(null, { status });
 const now = () => new Date().toISOString();
+const todayInChina = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
 const placeholders = count => Array.from({ length: count }, () => '?').join(',');
 
 async function currentUser(request, env) {
@@ -384,7 +385,9 @@ async function handleDramas(request, env, userId, url) {
     if (!sets.length) return json({ error: '没有可更新的字段' }, 400);
     sets.push("updated_at = datetime('now')");
     const result = await run(env, `UPDATE dramas SET ${sets.join(', ')} WHERE user_id = ? AND id IN (${placeholders(ids.length)})`, [...values, userId, ...ids.map(Number)]);
-    if (body.status === '听完') await run(env, `UPDATE dramas SET heard_episodes = total_episodes WHERE user_id = ? AND total_episodes IS NOT NULL AND id IN (${placeholders(ids.length)})`, [userId, ...ids.map(Number)]);
+    if (body.status === '听完') {
+      await run(env, `UPDATE dramas SET heard_episodes = total_episodes, finished_date = COALESCE(finished_date, ?) WHERE user_id = ? AND id IN (${placeholders(ids.length)})`, [todayInChina(), userId, ...ids.map(Number)]);
+    }
     return json({ updated: result.meta.changes || ids.length });
   }
 
@@ -407,6 +410,9 @@ async function handleDramas(request, env, userId, url) {
     const dramaId = Number(detail[1]);
     if (sets.length) await run(env, `UPDATE dramas SET ${sets.join(', ')}, updated_at = datetime('now') WHERE id = ? AND user_id = ?`, [...values, dramaId, userId]);
     if (Array.isArray(body.cvNames)) await setCvNames(env, userId, dramaId, body.cvNames);
+    if (body.status === '听完' && body.finished_date === undefined) {
+      await run(env, 'UPDATE dramas SET finished_date = COALESCE(finished_date, ?) WHERE id = ? AND user_id = ?', [todayInChina(), dramaId, userId]);
+    }
     await run(env, "UPDATE dramas SET heard_episodes = total_episodes WHERE id = ? AND user_id = ? AND status = '听完' AND total_episodes IS NOT NULL", [dramaId, userId]);
     const row = await first(env, 'SELECT * FROM dramas WHERE id = ? AND user_id = ?', [dramaId, userId]);
     return json((await withCvs(env, userId, [row]))[0]);
@@ -432,7 +438,7 @@ async function handleDramas(request, env, userId, url) {
       VALUES (?, ?, ?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [userId, body.title.trim(), body.platform || '漫播', body.kind || '广播剧', JSON.stringify(body.categories || []),
       body.cover_url || null, body.status || null, body.purchased ? 1 : 0, heard, total, body.rating ?? null,
-      body.finished_date || null, body.rewatch_status || null, body.review || null,
+      body.finished_date || (body.status === '听完' ? todayInChina() : null), body.rewatch_status || null, body.review || null,
       body.serialize_status || null, body.update_info || null, body.update_day || null, body.price ?? null,
       body.organization || null, body.missevan_id ?? null]);
     const dramaId = Number(result.meta.last_row_id);
@@ -454,7 +460,7 @@ async function handleDramas(request, env, userId, url) {
     if (q.has('purchased') && q.get('purchased') !== '') add('d.purchased = ?', ['true', '1'].includes(q.get('purchased')) ? 1 : 0);
     if (q.has('subscribed') && q.get('subscribed') !== '') add('d.subscribed = ?', ['true', '1'].includes(q.get('subscribed')) ? 1 : 0);
     if (q.get('q')) add('d.title LIKE ?', `%${q.get('q')}%`);
-    if (q.get('year')) add("substr(d.finished_date, 1, 4) = ?", q.get('year'));
+    if (q.get('year')) add("substr(CAST(d.finished_date AS TEXT), 1, 4) = ?", q.get('year'));
     if (q.get('rating_min')) add('d.rating >= ?', Number(q.get('rating_min')));
     if (q.get('category')) add('EXISTS (SELECT 1 FROM json_each(d.categories) je WHERE je.value = ?)', q.get('category'));
     if (q.get('cv')) add(`d.id IN (SELECT dc.drama_id FROM drama_cvs dc JOIN cvs c ON c.id = dc.cv_id WHERE c.user_id = d.user_id AND c.name = ? AND dc.role_type = '主役')`, q.get('cv'));
@@ -556,41 +562,42 @@ async function handleReports(request, env, userId, url) {
       category: await all(env, 'SELECT je.value value, COUNT(*) n FROM dramas d, json_each(d.categories) je WHERE d.user_id = ? GROUP BY 1 ORDER BY n DESC, value', [userId]),
       organization: await all(env, 'SELECT organization value, COUNT(*) n FROM dramas WHERE user_id = ? AND organization IS NOT NULL GROUP BY 1 ORDER BY n DESC', [userId]),
       cv: await all(env, `SELECT c.name value, COUNT(*) n FROM drama_cvs dc JOIN cvs c ON c.id = dc.cv_id JOIN dramas d ON d.id = dc.drama_id WHERE d.user_id = ? AND dc.role_type = '主役' GROUP BY 1 ORDER BY n DESC LIMIT 60`, [userId]),
-      year: await all(env, 'SELECT substr(finished_date, 1, 4) value, COUNT(*) n FROM dramas WHERE user_id = ? AND finished_date IS NOT NULL GROUP BY 1 ORDER BY value DESC', [userId]),
+      year: await all(env, 'SELECT substr(CAST(finished_date AS TEXT), 1, 4) value, COUNT(*) n FROM dramas WHERE user_id = ? AND finished_date IS NOT NULL GROUP BY 1 ORDER BY value DESC', [userId]),
       rating: await all(env, 'SELECT CAST(rating AS TEXT) value, COUNT(*) n FROM dramas WHERE user_id = ? AND rating IS NOT NULL GROUP BY 1 ORDER BY rating DESC', [userId]),
     });
   }
   if (path === '/api/cvs') {
     const min = Number(url.searchParams.get('min')) || 0;
     const role = url.searchParams.get('role') === 'all' ? '' : "AND dc.role_type = '主役'";
-    return json(await all(env, `SELECT c.id, c.name, c.avatar_url, c.missevan_id, COUNT(dc.drama_id) drama_count, ROUND(AVG(d.rating), 2) avg_rating FROM cvs c JOIN drama_cvs dc ON dc.cv_id = c.id JOIN dramas d ON d.id = dc.drama_id WHERE d.user_id = ? AND d.status = '听完' ${role} GROUP BY c.id HAVING drama_count >= ? ORDER BY drama_count DESC, avg_rating DESC`, [userId, min]));
+    return json(await all(env, `SELECT c.id, c.name, c.avatar_url, c.missevan_id, COUNT(dc.drama_id) drama_count, ROUND(CAST(AVG(d.rating) AS NUMERIC), 2) avg_rating FROM cvs c JOIN drama_cvs dc ON dc.cv_id = c.id JOIN dramas d ON d.id = dc.drama_id WHERE d.user_id = ? AND d.status = '听完' ${role} GROUP BY c.id HAVING COUNT(dc.drama_id) >= ? ORDER BY drama_count DESC, avg_rating DESC`, [userId, min]));
   }
   const cvDramas = path.match(/^\/api\/cvs\/(.+)\/dramas$/);
   if (cvDramas) {
     const role = url.searchParams.get('role') === 'all' ? '' : "AND dc.role_type = '主役'";
     return json(await list(env, userId, `SELECT d.* FROM dramas d JOIN drama_cvs dc ON dc.drama_id = d.id JOIN cvs c ON c.id = dc.cv_id WHERE d.user_id = ? AND c.name = ? AND d.status = '听完' ${role} ORDER BY d.rating DESC NULLS LAST, d.title`, [userId, decodeURIComponent(cvDramas[1])]));
   }
-  if (path === '/api/years') return json(await all(env, `SELECT substr(finished_date, 1, 4) year, COUNT(*) count, ROUND(AVG(rating), 2) avg_rating FROM dramas WHERE user_id = ? AND finished_date IS NOT NULL GROUP BY year ORDER BY year DESC`, [userId]));
+  if (path === '/api/years') return json(await all(env, `SELECT substr(CAST(finished_date AS TEXT), 1, 4) AS "year", COUNT(*) count, ROUND(CAST(AVG(rating) AS NUMERIC), 2) avg_rating FROM dramas WHERE user_id = ? AND finished_date IS NOT NULL GROUP BY 1 ORDER BY 1 DESC`, [userId]));
   const yearStats = path.match(/^\/api\/years\/(\d{4})\/stats$/);
   if (yearStats) {
     const year = yearStats[1];
-    const monthRows = await all(env, 'SELECT CAST(substr(finished_date, 6, 2) AS INTEGER) m, COUNT(*) n FROM dramas WHERE user_id = ? AND substr(finished_date, 1, 4) = ? GROUP BY m', [userId, year]);
+    const yearFilter = 'substr(CAST(finished_date AS TEXT),1,4) = ?';
+    const monthRows = await all(env, `SELECT CAST(substr(CAST(finished_date AS TEXT), 6, 2) AS INTEGER) m, COUNT(*) n FROM dramas WHERE user_id = ? AND ${yearFilter} GROUP BY 1`, [userId, year]);
     const metric = async sql => (await first(env, sql, [userId, year]))?.c ?? 0;
     return json({
       year,
-      total: await metric('SELECT COUNT(*) c FROM dramas WHERE user_id = ? AND substr(finished_date,1,4) = ?'),
-      avgRating: await metric('SELECT ROUND(AVG(rating), 2) c FROM dramas WHERE user_id = ? AND substr(finished_date,1,4) = ? AND rating IS NOT NULL'),
-      episodes: await metric('SELECT COALESCE(SUM(total_episodes), 0) c FROM dramas WHERE user_id = ? AND substr(finished_date,1,4) = ?'),
-      reviews: await metric('SELECT COUNT(*) c FROM dramas WHERE user_id = ? AND substr(finished_date,1,4) = ? AND review IS NOT NULL'),
+      total: await metric(`SELECT COUNT(*) c FROM dramas WHERE user_id = ? AND ${yearFilter}`),
+      avgRating: await metric(`SELECT ROUND(CAST(AVG(rating) AS NUMERIC), 2) c FROM dramas WHERE user_id = ? AND ${yearFilter} AND rating IS NOT NULL`),
+      episodes: await metric(`SELECT COALESCE(SUM(total_episodes), 0) c FROM dramas WHERE user_id = ? AND ${yearFilter}`),
+      reviews: await metric(`SELECT COUNT(*) c FROM dramas WHERE user_id = ? AND ${yearFilter} AND review IS NOT NULL`),
       byMonth: Array.from({ length: 12 }, (_, index) => ({ month: index + 1, n: monthRows.find(row => Number(row.m) === index + 1)?.n || 0 })),
-      byRating: await all(env, 'SELECT CAST(rating AS TEXT) label, COUNT(*) n FROM dramas WHERE user_id = ? AND substr(finished_date,1,4) = ? AND rating IS NOT NULL GROUP BY rating ORDER BY rating DESC', [userId, year]),
-      byCategory: await all(env, 'SELECT je.value label, COUNT(*) n FROM dramas d, json_each(d.categories) je WHERE d.user_id = ? AND substr(d.finished_date,1,4) = ? GROUP BY 1 ORDER BY n DESC LIMIT 10', [userId, year]),
-      topCvs: await all(env, "SELECT c.name label, COUNT(*) n FROM dramas d JOIN drama_cvs dc ON dc.drama_id = d.id AND dc.role_type = '主役' JOIN cvs c ON c.id = dc.cv_id WHERE d.user_id = ? AND substr(d.finished_date,1,4) = ? GROUP BY 1 ORDER BY n DESC LIMIT 10", [userId, year]),
-      topRated: await all(env, 'SELECT title label, rating n FROM dramas WHERE user_id = ? AND substr(finished_date,1,4) = ? AND rating IS NOT NULL ORDER BY rating DESC, title LIMIT 8', [userId, year]),
+      byRating: await all(env, `SELECT CAST(rating AS TEXT) label, COUNT(*) n FROM dramas WHERE user_id = ? AND ${yearFilter} AND rating IS NOT NULL GROUP BY rating ORDER BY rating DESC`, [userId, year]),
+      byCategory: await all(env, 'SELECT je.value label, COUNT(*) n FROM dramas d, json_each(d.categories) je WHERE d.user_id = ? AND substr(CAST(d.finished_date AS TEXT),1,4) = ? GROUP BY 1 ORDER BY n DESC LIMIT 10', [userId, year]),
+      topCvs: await all(env, "SELECT c.name label, COUNT(*) n FROM dramas d JOIN drama_cvs dc ON dc.drama_id = d.id AND dc.role_type = '主役' JOIN cvs c ON c.id = dc.cv_id WHERE d.user_id = ? AND substr(CAST(d.finished_date AS TEXT),1,4) = ? GROUP BY 1 ORDER BY n DESC LIMIT 10", [userId, year]),
+      topRated: await all(env, `SELECT title label, rating n FROM dramas WHERE user_id = ? AND ${yearFilter} AND rating IS NOT NULL ORDER BY rating DESC, title LIMIT 8`, [userId, year]),
     });
   }
   const yearList = path.match(/^\/api\/years\/(\d{4})$/);
-  if (yearList) return json(await list(env, userId, 'SELECT * FROM dramas WHERE user_id = ? AND substr(finished_date,1,4) = ? ORDER BY finished_date DESC', [userId, yearList[1]]));
+  if (yearList) return json(await list(env, userId, 'SELECT * FROM dramas WHERE user_id = ? AND substr(CAST(finished_date AS TEXT),1,4) = ? ORDER BY finished_date DESC', [userId, yearList[1]]));
   if (path === '/api/stats') {
     const metric = async sql => (await first(env, sql, [userId]))?.c ?? 0;
     return json({

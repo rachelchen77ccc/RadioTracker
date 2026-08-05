@@ -11,6 +11,12 @@ const DAYS = ['', '周一', '周二', '周三', '周四', '周五', '周六', '�
 
 /** 所有封面统一 640×640：本地裁好再传，服务端不需要图像库 */
 const COVER_SIZE = 640;
+const today = () => {
+  const date = new Date();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+};
 
 function cropToSquare(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -94,12 +100,14 @@ export function DramaDrawer({
   };
 
   const set = <K extends keyof Drama>(k: K, v: Drama[K]) => {
+    const autoFinishedDate = k === 'status' && v === '听完' && !d.finished_date ? today() : null;
     setD(prev => {
       const next = { ...prev, [k]: v } as Drama;
       // 选听完、或修改听完剧的总集数时，界面也立刻显示满进度。
       if (next.status === '听完' && (k === 'status' || k === 'total_episodes')) {
         next.heard_episodes = next.total_episodes;
       }
+      if (autoFinishedDate) next.finished_date = autoFinishedDate;
       return next;
     });
     // CV 是关系表，要转成后端认的 cvNames
@@ -109,6 +117,7 @@ export function DramaDrawer({
     } else {
       pending.current[k as string] = v;
     }
+    if (autoFinishedDate) pending.current.finished_date = autoFinishedDate;
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(flush, 600);
   };

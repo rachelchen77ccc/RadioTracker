@@ -9,6 +9,13 @@ test('SQLite 占位符和日期函数会转换成 Postgres 写法', () => {
   );
 });
 
+test('SQLite 的 JSON 数组展开会转换成 Postgres jsonb 写法', () => {
+  assert.equal(
+    __test.finalSql('SELECT je.value FROM dramas d, json_each(d.categories) je WHERE je.value = ?'),
+    'SELECT je.value FROM dramas d, jsonb_array_elements_text(d.categories::jsonb) AS je(value) WHERE je.value = $1',
+  );
+});
+
 test('Postgres 的 bigint 和统计数字会变成前端可用的 number', () => {
   assert.deepEqual(__test.normalizeRow({ id: 2n, c: '317', title: '24格的谎言' }), {
     id: 2,

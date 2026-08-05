@@ -26,7 +26,12 @@ function finalSql(source) {
   let index = 0;
   let sql = source.replace(/\?/g, () => `$${++index}`);
   sql = sql.replace(/datetime\('now'\)/gi, 'CURRENT_TIMESTAMP');
-  return sql.replace(/date\('now',\s*(\$\d+)\)/gi, (_match, placeholder) => `(CURRENT_DATE + ${placeholder}::interval)`);
+  sql = sql.replace(/date\('now',\s*(\$\d+)\)/gi, (_match, placeholder) => `(CURRENT_DATE + ${placeholder}::interval)`);
+  // SQLite 用 json_each 展开 JSON 数组；线上 categories 是 Postgres jsonb。
+  return sql.replace(
+    /json_each\(([^)]+)\)\s+([a-z][a-z0-9_]*)/gi,
+    (_match, expression, alias) => `jsonb_array_elements_text(${expression}::jsonb) AS ${alias}(value)`,
+  );
 }
 
 class PostgresStatement {

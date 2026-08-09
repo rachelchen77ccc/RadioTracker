@@ -1,6 +1,15 @@
 const AUTH_PATH_PREFIX = '/auth/v1/';
 const PROXY_PATH = '/api/supabase-auth';
-const REQUEST_HEADERS_TO_DROP = ['connection', 'content-length', 'cookie', 'host', 'origin', 'referer'];
+const AUTH_PATH_HEADER = 'x-supabase-auth-path';
+const REQUEST_HEADERS_TO_DROP = [
+  'connection',
+  'content-length',
+  'cookie',
+  'host',
+  'origin',
+  'referer',
+  AUTH_PATH_HEADER,
+];
 const RESPONSE_HEADERS_TO_DROP = ['connection', 'content-encoding', 'content-length', 'set-cookie', 'transfer-encoding'];
 
 function json(body, status) {
@@ -25,7 +34,7 @@ export async function handleSupabaseAuthProxy(request, {
   const base = getSupabaseUrl(env);
   if (!base) return json({ error: '认证代理缺少 Supabase 配置' }, 503);
 
-  const path = incoming.searchParams.get('path');
+  const path = request.headers.get(AUTH_PATH_HEADER) || incoming.searchParams.get('path');
   if (!path?.startsWith(AUTH_PATH_PREFIX)) return json({ error: '不允许的认证请求' }, 400);
 
   const baseUrl = new URL(base);

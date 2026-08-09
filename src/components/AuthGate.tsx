@@ -2,6 +2,27 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { cloudEnabled, supabase } from '../cloud/supabase';
 
+const AUTH_TIMEOUT_MS = 20_000;
+
+function withAuthTimeout<T>(promise: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(
+      () => reject(new Error('认证服务连接超时，请检查网络后重试。')),
+      AUTH_TIMEOUT_MS,
+    );
+    promise.then(
+      value => { window.clearTimeout(timer); resolve(value); },
+      reason => { window.clearTimeout(timer); reject(reason); },
+    );
+  });
+}
+
+function authMessage(reason: unknown, fallback: string) {
+  if (!(reason instanceof Error)) return fallback;
+  if (/fetch|network|timeout|超时/i.test(reason.message)) return '认证服务连接超时，请稍后重试。';
+  return reason.message;
+}
+
 export function AuthGate({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(!cloudEnabled);
@@ -17,10 +38,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setReady(true);
-    });
+    withAuthTimeout(supabase.auth.getSession())
+      .then(({ data }) => setSession(data.session))
+      .catch(reason => setMessage(authMessage(reason, '认证服务暂时不可用')))
+      .finally(() => setReady(true));
     const { data } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
     return () => data.subscription.unsubscribe();
   }, []);
@@ -34,20 +55,20 @@ export function AuthGate({ children }: { children: ReactNode }) {
     if (!supabase) return;
     setBusy(true); setMessage(null);
     try {
-      const result = mode === 'login'
-        ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({
+      const result = await withAuthTimeout(mode === 'login'
+        ? supabase.auth.signInWithPassword({ email, password })
+        : supabase.auth.signUp({
             email,
             password,
             options: { emailRedirectTo },
-          });
+          }));
       if (result.error) throw result.error;
       if (mode === 'register' && !result.data.session) {
         setMessage('注册成功，请到邮箱确认后再登录。');
         setMode('login');
       }
     } catch (reason) {
-      setMessage(reason instanceof Error ? reason.message : '登录失败');
+      setMessage(authMessage(reason, '登录失败'));
     } finally {
       setBusy(false);
     }
@@ -61,15 +82,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
     }
     setBusy(true); setMessage(null);
     try {
-      const { error } = await supabase.auth.resend({
+      const { error } = await withAuthTimeout(supabase.auth.resend({
         type: 'signup',
         email: email.trim(),
         options: { emailRedirectTo },
-      });
+      }));
       if (error) throw error;
       setMessage('确认邮件已重新发送，请使用新邮件中的链接。');
     } catch (reason) {
-      setMessage(reason instanceof Error ? reason.message : '确认邮件发送失败');
+      setMessage(authMessage(reason, '确认邮件发送失败'));
     } finally {
       setBusy(false);
     }

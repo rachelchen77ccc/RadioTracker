@@ -23,8 +23,12 @@ async function cloudFetch(input: RequestInfo | URL, init?: RequestInit) {
   if (!shouldProxyAuth(target)) return fetch(request);
 
   const proxy = new URL('/api/supabase-auth', window.location.origin);
-  proxy.searchParams.set('path', target.pathname + target.search);
-  return fetch(new Request(proxy, request));
+  const authPath = target.pathname + target.search;
+  proxy.searchParams.set('path', authPath);
+  const proxyRequest = new Request(proxy, request);
+  // Vercel's /api rewrite can discard the query string before the function runs.
+  proxyRequest.headers.set('X-Supabase-Auth-Path', authPath);
+  return fetch(proxyRequest);
 }
 
 export const cloudEnabled = Boolean(url && anonKey);

@@ -10,7 +10,13 @@ test('只把 Supabase auth 请求转发到配置的项目', async () => {
     'https://radio.example/api/supabase-auth?path=%2Fauth%2Fv1%2Ftoken%3Fgrant_type%3Dpassword',
     {
       method: 'POST',
-      headers: { apikey: 'public-key', cookie: 'private-cookie', 'content-type': 'application/json' },
+      headers: {
+        apikey: 'public-key',
+        cookie: 'private-cookie',
+        'content-type': 'application/json',
+        'sec-fetch-site': 'same-origin',
+        'x-vercel-forwarded-for': '203.0.113.1',
+      },
       body: JSON.stringify({ email: 'listener@example.com', password: 'secret' }),
     },
   ), {
@@ -24,6 +30,8 @@ test('只把 Supabase auth 请求转发到配置的项目', async () => {
   assert.equal(received.url, 'https://project.supabase.co/auth/v1/token?grant_type=password');
   assert.equal(received.init.headers.get('apikey'), 'public-key');
   assert.equal(received.init.headers.has('cookie'), false);
+  assert.equal(received.init.headers.has('sec-fetch-site'), false);
+  assert.equal(received.init.headers.has('x-vercel-forwarded-for'), false);
   assert.match(received.body, /listener@example.com/);
   assert.equal(response.status, 200);
   assert.equal((await response.json()).access_token, 'token');

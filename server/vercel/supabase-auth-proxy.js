@@ -1,14 +1,13 @@
 const AUTH_PATH_PREFIX = '/auth/v1/';
 const PROXY_PATH = '/api/supabase-auth';
 const AUTH_PATH_HEADER = 'x-supabase-auth-path';
-const REQUEST_HEADERS_TO_DROP = [
-  'connection',
-  'content-length',
-  'cookie',
-  'host',
-  'origin',
-  'referer',
-  AUTH_PATH_HEADER,
+const REQUEST_HEADERS_TO_FORWARD = [
+  'accept',
+  'apikey',
+  'authorization',
+  'content-type',
+  'x-client-info',
+  'x-supabase-api-version',
 ];
 const RESPONSE_HEADERS_TO_DROP = ['connection', 'content-encoding', 'content-length', 'set-cookie', 'transfer-encoding'];
 
@@ -43,8 +42,11 @@ export async function handleSupabaseAuthProxy(request, {
     return json({ error: '不允许的认证目标' }, 400);
   }
 
-  const headers = new Headers(request.headers);
-  REQUEST_HEADERS_TO_DROP.forEach(name => headers.delete(name));
+  const headers = new Headers();
+  REQUEST_HEADERS_TO_FORWARD.forEach(name => {
+    const value = request.headers.get(name);
+    if (value) headers.set(name, value);
+  });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 

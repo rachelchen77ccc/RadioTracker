@@ -18,9 +18,17 @@ function withAuthTimeout<T>(promise: Promise<T>): Promise<T> {
 }
 
 function authMessage(reason: unknown, fallback: string) {
-  if (!(reason instanceof Error)) return fallback;
-  if (/fetch|network|timeout|超时/i.test(reason.message)) return '认证服务连接超时，请稍后重试。';
-  return reason.message;
+  const detail = reason instanceof Error
+    ? reason.message
+    : reason && typeof reason === 'object'
+      ? ['message', 'msg', 'error_description', 'error']
+          .map(key => (reason as Record<string, unknown>)[key])
+          .find(value => typeof value === 'string')
+      : null;
+  if (typeof detail !== 'string' || !detail.trim()) return fallback;
+  if (/invalid login credentials/i.test(detail)) return '邮箱或密码不正确。';
+  if (/fetch|network|timeout|超时/i.test(detail)) return '认证服务连接超时，请稍后重试。';
+  return detail;
 }
 
 export function AuthGate({ children }: { children: ReactNode }) {

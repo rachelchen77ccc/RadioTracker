@@ -29,7 +29,7 @@ const SORTS = [
 type Page = { total: number; page: number; pageSize: number; pages: number; items: Drama[] };
 
 export function StatusGallery({
-  path, countsPath, onOpen, version, emptyText,
+  path, countsPath, onOpen, version, emptyText, hidePageNote = false,
 }: {
   path: string;
   countsPath: string;
@@ -37,6 +37,8 @@ export function StatusGallery({
   /** 外部数据变了就 +1，用来触发重拉 */
   version: number;
   emptyText: string;
+  /** 不在文件夹标题旁重复显示“第 x / y 页”，底部翻页条仍保留。 */
+  hidePageNote?: boolean;
 }) {
   const [status, setStatus] = useState('');
   const [sort, setSort] = useState('todo');
@@ -140,7 +142,7 @@ export function StatusGallery({
         active={status}
         onSelect={setStatus}
         count={data?.total}
-        note={data && data.pages > 1 ? `第 ${data.page} / ${data.pages} 页` : undefined}
+        note={!hidePageNote && data && data.pages > 1 ? `第 ${data.page} / ${data.pages} 页` : undefined}
       >
       <div className="gallery mark">
         {rows.map(d => {

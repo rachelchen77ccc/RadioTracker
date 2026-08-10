@@ -307,6 +307,21 @@ section.folder[data-tone="5"] { --f: var(--f-lilac); --tab-w: 196px; }
 
 .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(156px, 1fr)); gap: 20px 16px; }
 .gallery.wide { grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); }
+/* 首页“正在听”最多五张一行：第六张起自动换行，不再横向滚动。 */
+.gallery.max-five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+
+@media (max-width: 1300px) {
+  .gallery.max-five { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 1050px) {
+  .gallery.max-five { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 780px) {
+  .gallery.max-five { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+  .gallery.max-five { grid-template-columns: 1fr; }
+}
 
 .card {
   position: relative;

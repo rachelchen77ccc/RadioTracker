@@ -14,7 +14,8 @@ import type { Facets as FacetData } from '../types';
 const GROUPS: { key: string; label: string; limit: number }[] = [
   { key: 'status',   label: '收听状态', limit: 8 },
   { key: 'platform', label: '平台',     limit: 5 },
-  { key: 'kind',     label: '类别',     limit: 5 },
+  { key: 'kind',     label: '剧集类型', limit: 5 },
+  { key: 'purchased', label: '是否购买', limit: 2 },
   { key: 'year',     label: '听完年份', limit: 8 },
 ];
 
@@ -27,6 +28,18 @@ const DEFAULT_FOLDED: Record<string, boolean> = Object.fromEntries([
 const PARAM: Record<string, string> = {
   status: 'status', platform: 'platform', kind: 'kind', serialize: 'serialize',
   category: 'category', cv: 'cv', organization: 'organization', year: 'year',
+  purchased: 'purchased',
+};
+
+const optionLabel = (key: string, value: string) => {
+  if (key === 'purchased') return value === '1' ? '已购买' : '未购买';
+  if (key === 'kind' && value === '听书') return '有声';
+  return value;
+};
+
+const paramLabel = (param: string, value: string) => {
+  const key = Object.keys(PARAM).find(k => PARAM[k] === param) ?? param;
+  return optionLabel(key, value);
 };
 
 export function Facets({
@@ -75,7 +88,7 @@ export function Facets({
         <div className="active-filters">
           {active.map(([k, v]) => (
             <span className="pill" key={k}>
-              {v}
+              {paramLabel(k, v)}
               <button onClick={() => {
                 const next = { ...value };
                 delete next[k];
@@ -102,7 +115,7 @@ export function Facets({
             <h4 onClick={() => fold(g.key)} title={isFolded ? '展开' : '收起'}>
               <span className="chev">{isFolded ? '▸' : '▾'}</span>
               {g.label}
-              {isFolded && picked && <span className="picked">{picked}</span>}
+              {isFolded && picked && <span className="picked">{optionLabel(g.key, picked)}</span>}
             </h4>
             {!isFolded && shown.map(o => (
               <button
@@ -111,7 +124,7 @@ export function Facets({
                 onClick={() => toggle(g.key, o.value)}
               >
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {o.value}
+                  {optionLabel(g.key, o.value)}
                 </span>
                 <span className="n">{o.n}</span>
               </button>

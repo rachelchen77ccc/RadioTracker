@@ -95,13 +95,13 @@ export function DramaCard({ drama, onOpen }: { drama: Drama; onOpen: (d: Drama) 
 }
 
 export function Gallery({
-  dramas, onOpen, wide, empty = '这个抽屉是空的',
+  dramas, onOpen, wide, maxFive, empty = '这个抽屉是空的',
 }: {
-  dramas: Drama[]; onOpen: (d: Drama) => void; wide?: boolean; empty?: string;
+  dramas: Drama[]; onOpen: (d: Drama) => void; wide?: boolean; maxFive?: boolean; empty?: string;
 }) {
   if (!dramas.length) return <div className="empty-state">— {empty} —</div>;
   return (
-    <div className={'gallery' + (wide ? ' wide' : '')}>
+    <div className={'gallery' + (wide ? ' wide' : '') + (maxFive ? ' max-five' : '')}>
       {dramas.map(d => <DramaCard key={d.id} drama={d} onOpen={onOpen} />)}
     </div>
   );

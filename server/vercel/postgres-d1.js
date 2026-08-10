@@ -59,7 +59,7 @@ class PostgresStatement {
   async run() {
     let sql = finalSql(this.source).trim().replace(/;$/, '');
     const insertTable = /^insert\s+into\s+(?:public\.)?([a-z_]+)/i.exec(sql)?.[1];
-    if (['dramas', 'cvs', 'sync_log'].includes(insertTable) && !/\breturning\b/i.test(sql)) {
+    if (['dramas', 'cvs', 'sync_log', 'drama_diary_entries'].includes(insertTable) && !/\breturning\b/i.test(sql)) {
       sql += ' RETURNING id';
     }
     const rows = await this.client.unsafe(sql, this.params);

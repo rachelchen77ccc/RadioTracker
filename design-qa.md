@@ -1,50 +1,54 @@
-# Design QA — 单剧分享长图「专辑播放」面板
+# Design QA — 听剧日记与“正在听”紧凑卡片
 
-- Source visual truth: `/var/folders/35/9ll_s7nx0210jrl4zv__7w7c0000gp/T/codex-clipboard-70a8fd7c-46fe-47f0-a4d4-1b3d3287029f.png`
-- Implementation screenshot: `/private/tmp/radiotracker-player-share.png`
-- Combined comparison: `/private/tmp/radiotracker-player-comparison.png`
-- Source pixels: 1200 × 675
-- Implementation pixels: 2160 × 1404
-- Canvas CSS size / density: 1080 × 702 CSS px at 2× export density
-- Comparison canvas: 2400 × 1400; both images fit proportionally without cropping
-- State: drama `FILE_0242`（赤霞珠），有封面、主役 CV、平台、同步日期和 1/21 进度；无评分、无剧评
+- Source visual truth:
+  - `/var/folders/35/9ll_s7nx0210jrl4zv__7w7c0000gp/T/codex-clipboard-27dd1fe4-39fd-4223-806e-dd0d52e41089.png`
+  - `/var/folders/35/9ll_s7nx0210jrl4zv__7w7c0000gp/T/codex-clipboard-ffb0fc21-f932-4655-9fae-8029daf45dac.png`
+  - `/var/folders/35/9ll_s7nx0210jrl4zv__7w7c0000gp/T/codex-clipboard-e87ea848-7010-4074-ae42-c0b761f9f7a1.png`
+  - `/var/folders/35/9ll_s7nx0210jrl4zv__7w7c0000gp/T/codex-clipboard-930ee8d8-6161-4fb6-9d53-13c8d5a05201.png`
+- Implementation screenshots:
+  - `/tmp/radiotracker-now-compact.png`
+  - `/tmp/radiotracker-diary-modal.png`
+  - `/tmp/radiotracker-diary-share-preview.png`
+- Combined comparison: `/tmp/radiotracker-diary-comparison.jpg`
+- Browser viewport: 1600 × 1000
+- Long-image export: 2160 × 2640 pixels (1080 × 1320 CSS pixels at 2× density)
+- State: local drama `FILE_0242`（赤霞珠），真实封面、主役、平台、7/21 进度；创建一条临时日记完成保存与长图验证后已删除。
 
 ## Full-view comparison evidence
 
-The combined comparison shows that the implementation keeps the reference's main compositional idea—a wide rounded playback surface, square album art on the left, and playback information on the right—without copying the iPhone frame, device label, transport icons, or exact control layout. The implementation instead uses RadioTracker's paper archive frame, kraft file tab, monospace metadata, and barcode footer.
-
-## Focused region evidence
-
-The implementation screenshot was also opened at full 2160 × 1404 resolution. A separate crop was not needed because the playback panel is a single contained region and its title, CV, three metadata fields, cover crop, progress line, border, and padding are all legible in that full-resolution view.
+The combined comparison places the supplied notebook/instant-film references and the implemented modal/share preview in one view. The result carries over the intended tactile qualities—warm paper, a Polaroid-style cover frame, lightly imperfect rotation, personal-note spacing, and a notebook writing surface—without copying the reference artwork, lettering, pins, or exact composition.
 
 ## Required fidelity surfaces
 
-- Fonts and typography: hierarchy is clear across `NOW PLAYING`, drama title, cast, facts, and progress. Standard `bold` canvas font syntax avoids renderer-specific numeric-weight parsing problems. Chinese display text uses the existing system CJK stack; compact UI labels use the existing mono stack.
-- Spacing and layout rhythm: cover and metadata use a stable two-column layout with 36–48 px interior padding. The 28 px panel radius and 15 px cover radius are visually consistent and do not crowd the archive border.
-- Colors and visual tokens: dark neutral playback panel, warm paper, kraft tab, muted gray labels, and a restrained blush score accent remain aligned with the existing archive palette. Contrast is sufficient.
-- Image quality and asset fidelity: the real drama cover is center-cropped as a square without stretching and exported at 2× density. No placeholder or generated cassette asset remains in the implementation.
-- Copy and content: the right column includes the requested drama title, main CVs, rating, platform, and date, plus listening progress. Missing ratings are shown as an em dash.
+- Typography: all user-facing diary and share-image labels are Chinese; hierarchy remains consistent with the existing archive interface.
+- Spacing and layout: the modal keeps the cover and explanation together in the header, then separates writing controls from the saved timeline. No overlap or clipped control was visible at the tested viewport.
+- Colors and tokens: warm ivory paper, blush rule, sage accents, dark gray ink, square borders, and the existing button system match RadioTracker's current visual language.
+- Cover treatment: the actual drama cover is used in both modal and share image. The share image uses a real white instant-film frame with wider bottom margin, slight rotation, and restrained shadow.
+- Long-image structure: the notebook rules continue through the full image; metadata and diary entries stay aligned to the ruled-paper rhythm. Export is 2× for readable sharing.
+- Core interaction: add, edit, delete, and long-image generation are implemented. The empty state disables sharing until at least one note exists.
 
-## Comparison history
+## “正在听” card fit
 
-1. First render: the local QA canvas renderer interpreted numeric font weights inconsistently, producing oversized glyphs in metadata. This was treated as a P1 rendering-compatibility issue.
-2. Fix: switched canvas font weights to the standards-compatible `bold` keyword and changed compact player labels to concise English while retaining Chinese content values.
-3. Post-fix evidence: `/private/tmp/radiotracker-player-share.png` and `/private/tmp/radiotracker-player-comparison.png` show correct type scale, no overlaps, a clean square cover crop, aligned fact columns, and an intact progress line.
+At a 1600 px desktop viewport:
+
+- main gallery width: 1238 px
+- each compact card: 182 px
+- gap: 12 px horizontally
+- page width / scroll width: 1600 / 1600 px
+- gallery width / scroll width: 1238 / 1238 px
+- calculated capacity: six 182 px cards plus five 12 px gaps fit in one row (1152 px total)
+
+The page and gallery therefore have no horizontal overflow at this viewport, and the six-card state shown in the user's reference fits in one line without right-scrolling.
+
+## Functional and runtime evidence
+
+- 25 automated tests passed, including diary CRUD and account isolation.
+- Production TypeScript/Vite/Vercel build passed.
+- In-app browser verified: opening `赤霞珠`, opening `听剧日记`, saving a note, generating a long image, and removing the temporary note.
+- Browser console contained no application errors; only existing React Router v7 future-flag notices.
 
 ## Findings
 
-No actionable P0/P1/P2 visual mismatches remain. The implementation intentionally omits transport-control icons and the device shell so it reads as a RadioTracker share card rather than a copy of the reference image.
-
-## Interaction and test notes
-
-- Share image rendering executed against real local API data and completed successfully.
-- Production TypeScript/Vite build passed.
-- Existing episode-total tests passed (5/5).
-- The in-app browser could not open the localhost preview because of its security policy, so the share canvas was rendered directly from the production `renderShareCard` function for visual evidence.
-- Sidebar groups initialize as folded and remain individually expandable through the existing heading controls.
-
-## Follow-up polish
-
-- P3: review a few unusually long titles and CV lists in the browser when localhost access is available.
+No actionable P0/P1/P2 layout or interaction issues remain in the requested surfaces.
 
 final result: passed

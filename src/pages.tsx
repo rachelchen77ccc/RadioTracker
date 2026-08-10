@@ -87,7 +87,7 @@ export function Home({ onOpen, version }: P) {
       <Async<Drama[]> path="/api/views/listening" version={version}>
         {d => (
           <Folder tab="在听" tone={3} count={d.length}>
-            <Gallery dramas={d} onOpen={onOpen} wide maxFive empty="现在没有在听的剧" />
+            <Gallery dramas={d} onOpen={onOpen} wide compact empty="现在没有在听的剧" />
           </Folder>
         )}
       </Async>

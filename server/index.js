@@ -7,6 +7,20 @@ import path from 'node:path';
 import { openDb, COVER_DIR, ROOT as ROOT_DIR } from './db.js';
 
 const db = openDb();
+// 旧的本地数据库也要无损补上日记表；CREATE IF NOT EXISTS 可重复执行。
+db.exec(`
+  CREATE TABLE IF NOT EXISTS drama_diary_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    drama_id INTEGER NOT NULL REFERENCES dramas(id) ON DELETE CASCADE,
+    entry_date TEXT NOT NULL,
+    episode_label TEXT,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_diary_drama_date
+    ON drama_diary_entries(drama_id, entry_date DESC, id DESC);
+`);
 // 「听完」的剧在任何页面都应该显示完整进度；旧数据也在启动时一次补齐。
 db.prepare(`
   UPDATE dramas SET heard_episodes = total_episodes
@@ -451,6 +465,52 @@ app.get('/api/dramas/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM dramas WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: '没找到这部剧' });
   res.json(withCvs([row])[0]);
+});
+
+// ── 听剧日记 ────────────────────────────────────────────
+
+app.get('/api/dramas/:id/diary', (req, res) => {
+  const drama = db.prepare('SELECT id FROM dramas WHERE id = ?').get(req.params.id);
+  if (!drama) return res.status(404).json({ error: '没找到这部剧' });
+  res.json(db.prepare(`
+    SELECT * FROM drama_diary_entries
+    WHERE drama_id = ? ORDER BY entry_date DESC, id DESC
+  `).all(req.params.id));
+});
+
+app.post('/api/dramas/:id/diary', (req, res) => {
+  const drama = db.prepare('SELECT id FROM dramas WHERE id = ?').get(req.params.id);
+  if (!drama) return res.status(404).json({ error: '没找到这部剧' });
+  const content = String(req.body?.content ?? '').trim();
+  if (!content) return res.status(400).json({ error: '写点内容再保存' });
+  const entryDate = String(req.body?.entry_date || todayInChina()).slice(0, 10);
+  const episodeLabel = String(req.body?.episode_label ?? '').trim().slice(0, 80) || null;
+  const info = db.prepare(`
+    INSERT INTO drama_diary_entries (drama_id, entry_date, episode_label, content)
+    VALUES (?, ?, ?, ?)
+  `).run(req.params.id, entryDate, episodeLabel, content);
+  res.status(201).json(db.prepare('SELECT * FROM drama_diary_entries WHERE id = ?').get(info.lastInsertRowid));
+});
+
+app.patch('/api/dramas/:dramaId/diary/:entryId', (req, res) => {
+  const content = String(req.body?.content ?? '').trim();
+  if (!content) return res.status(400).json({ error: '日记内容不能为空' });
+  const entryDate = String(req.body?.entry_date || todayInChina()).slice(0, 10);
+  const episodeLabel = String(req.body?.episode_label ?? '').trim().slice(0, 80) || null;
+  const info = db.prepare(`
+    UPDATE drama_diary_entries
+    SET entry_date = ?, episode_label = ?, content = ?, updated_at = datetime('now')
+    WHERE id = ? AND drama_id = ?
+  `).run(entryDate, episodeLabel, content, req.params.entryId, req.params.dramaId);
+  if (!info.changes) return res.status(404).json({ error: '没找到这条日记' });
+  res.json(db.prepare('SELECT * FROM drama_diary_entries WHERE id = ?').get(req.params.entryId));
+});
+
+app.delete('/api/dramas/:dramaId/diary/:entryId', (req, res) => {
+  const info = db.prepare('DELETE FROM drama_diary_entries WHERE id = ? AND drama_id = ?')
+    .run(req.params.entryId, req.params.dramaId);
+  if (!info.changes) return res.status(404).json({ error: '没找到这条日记' });
+  res.status(204).end();
 });
 
 // 手动录入 —— 漫播和其他平台的剧走这条路

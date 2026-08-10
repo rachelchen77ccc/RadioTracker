@@ -3,6 +3,7 @@ import { api } from '../api';
 import { renderShareCard } from '../shareCard';
 import { STATUSES, type Drama } from '../types';
 import { Tape } from './DramaCard';
+import { DramaDiary } from './DramaDiary';
 
 // 「待重刷」不在这里 —— 它已经拆成独立的 rewatch_queued（重刷计划），
 // 这一列只剩「刷过几遍」的历史。
@@ -60,6 +61,7 @@ export function DramaDrawer({
   const pending = useRef<Record<string, unknown>>({});
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [share, setShare] = useState<string | null>(null);
+  const [diaryOpen, setDiaryOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -68,12 +70,13 @@ export function DramaDrawer({
   useEffect(() => {
     const esc = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
+      if (diaryOpen) return;
       if (share) setShare(null); else closeAndFlush();
     };
     window.addEventListener('keydown', esc);
     return () => window.removeEventListener('keydown', esc);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [share, d.id]);
+  }, [share, diaryOpen, d.id]);
 
   // 预览用的 objectURL 要回收，不然切几十部就漏几十份
   useEffect(() => () => { if (share) URL.revokeObjectURL(share); }, [share]);
@@ -381,7 +384,10 @@ export function DramaDrawer({
         )}
 
         <div className="review-editor">
-          <div className="mono" style={{ marginBottom: 8 }}>R E P O · 剧评</div>
+          <div className="review-editor-head">
+            <div className="mono">R E P O · 剧评</div>
+            <button className="btn diary-launch" onClick={() => setDiaryOpen(true)}>听剧日记</button>
+          </div>
           <textarea
             className="input"
             style={{ width: '100%', minHeight: 220, lineHeight: 1.85, resize: 'vertical' }}
@@ -429,6 +435,8 @@ export function DramaDrawer({
           </div>
         </div>
       )}
+
+      {diaryOpen && <DramaDiary drama={d} onClose={() => setDiaryOpen(false)} />}
     </>
   );
 }

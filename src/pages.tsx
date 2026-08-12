@@ -87,7 +87,7 @@ export function Home({ onOpen, version }: P) {
       <Async<Drama[]> path="/api/views/listening" version={version}>
         {d => (
           <Folder tab="在听" tone={3} count={d.length}>
-            <Gallery dramas={d} onOpen={onOpen} wide empty="现在没有在听的剧" />
+            <Gallery dramas={d} onOpen={onOpen} wide compact empty="现在没有在听的剧" />
           </Folder>
         )}
       </Async>
@@ -140,6 +140,7 @@ export function Purchased({ onOpen, version }: P) {
         onOpen={onOpen}
         version={version}
         emptyText="这一档是空的"
+        hidePageNote
       />
     </>
   );

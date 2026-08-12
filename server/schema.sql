@@ -68,6 +68,21 @@ CREATE INDEX IF NOT EXISTS idx_dramas_platform ON dramas(platform);
 CREATE INDEX IF NOT EXISTS idx_dramas_finished ON dramas(finished_date);
 CREATE INDEX IF NOT EXISTS idx_dramas_rewatch_queued ON dramas(rewatch_queued);
 
+-- 听剧日记：一部剧可以在收听过程中记很多条碎碎念。
+-- 本地库是单用户，所以 user_id 只存在于线上 Supabase 版本。
+CREATE TABLE IF NOT EXISTS drama_diary_entries (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  drama_id      INTEGER NOT NULL REFERENCES dramas(id) ON DELETE CASCADE,
+  entry_date    TEXT NOT NULL,
+  episode_label TEXT,
+  content       TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_diary_drama_date
+  ON drama_diary_entries(drama_id, entry_date DESC, id DESC);
+
 CREATE TABLE IF NOT EXISTS cvs (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   name        TEXT NOT NULL UNIQUE,

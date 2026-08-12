@@ -50,6 +50,16 @@ export interface Drama {
   weekday?: string;
 }
 
+export interface DiaryEntry {
+  id: number;
+  drama_id: number;
+  entry_date: string;
+  episode_label: string | null;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CvStat {
   id: number;
   name: string;

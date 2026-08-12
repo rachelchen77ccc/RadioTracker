@@ -336,8 +336,53 @@ async function importBundle(env, userId, body) {
 async function handleDramas(request, env, userId, url) {
   const path = url.pathname;
   const detail = path.match(/^\/api\/dramas\/(\d+)$/);
+  const diaryCollection = path.match(/^\/api\/dramas\/(\d+)\/diary$/);
+  const diaryItem = path.match(/^\/api\/dramas\/(\d+)\/diary\/(\d+)$/);
   const coverUpload = path.match(/^\/api\/dramas\/(\d+)\/cover$/);
   const coverFile = path.match(/^\/api\/dramas\/(\d+)\/cover-file$/);
+
+  if (diaryCollection) {
+    const dramaId = Number(diaryCollection[1]);
+    const drama = await first(env, 'SELECT id FROM dramas WHERE id = ? AND user_id = ?', [dramaId, userId]);
+    if (!drama) return json({ error: '没找到这部剧' }, 404);
+    if (request.method === 'GET') {
+      return json(await all(env, `SELECT * FROM drama_diary_entries
+        WHERE drama_id = ? AND user_id = ? ORDER BY entry_date DESC, id DESC`, [dramaId, userId]));
+    }
+    if (request.method === 'POST') {
+      const body = await request.json();
+      const content = String(body.content || '').trim();
+      if (!content) return json({ error: '写点内容再保存' }, 400);
+      const entryDate = String(body.entry_date || todayInChina()).slice(0, 10);
+      const episodeLabel = String(body.episode_label || '').trim().slice(0, 80) || null;
+      const result = await run(env, `INSERT INTO drama_diary_entries
+        (user_id, drama_id, entry_date, episode_label, content)
+        VALUES (?, ?, ?, ?, ?)`, [userId, dramaId, entryDate, episodeLabel, content]);
+      return json(await first(env, 'SELECT * FROM drama_diary_entries WHERE id = ? AND user_id = ?', [Number(result.meta.last_row_id), userId]), 201);
+    }
+  }
+
+  if (diaryItem) {
+    const dramaId = Number(diaryItem[1]);
+    const entryId = Number(diaryItem[2]);
+    if (request.method === 'PATCH') {
+      const body = await request.json();
+      const content = String(body.content || '').trim();
+      if (!content) return json({ error: '日记内容不能为空' }, 400);
+      const entryDate = String(body.entry_date || todayInChina()).slice(0, 10);
+      const episodeLabel = String(body.episode_label || '').trim().slice(0, 80) || null;
+      const result = await run(env, `UPDATE drama_diary_entries
+        SET entry_date = ?, episode_label = ?, content = ?, updated_at = datetime('now')
+        WHERE id = ? AND drama_id = ? AND user_id = ?`,
+      [entryDate, episodeLabel, content, entryId, dramaId, userId]);
+      if (!result.meta.changes) return json({ error: '没找到这条日记' }, 404);
+      return json(await first(env, 'SELECT * FROM drama_diary_entries WHERE id = ? AND user_id = ?', [entryId, userId]));
+    }
+    if (request.method === 'DELETE') {
+      const result = await run(env, 'DELETE FROM drama_diary_entries WHERE id = ? AND drama_id = ? AND user_id = ?', [entryId, dramaId, userId]);
+      return result.meta.changes ? empty() : json({ error: '没找到这条日记' }, 404);
+    }
+  }
 
   if (coverFile && request.method === 'GET') {
     const row = await first(env, 'SELECT cover_local FROM dramas WHERE id = ? AND user_id = ?', [Number(coverFile[1]), userId]);
@@ -558,7 +603,7 @@ async function handleReports(request, env, userId, url) {
       status: await all(env, 'SELECT status value, COUNT(*) n FROM dramas WHERE user_id = ? AND status IS NOT NULL GROUP BY 1 ORDER BY n DESC', [userId]),
       platform: await all(env, 'SELECT platform value, COUNT(*) n FROM dramas WHERE user_id = ? GROUP BY 1 ORDER BY n DESC', [userId]),
       kind: await all(env, "SELECT kind value, COUNT(*) n FROM dramas WHERE user_id = ? AND kind IS NOT NULL AND kind <> '' GROUP BY 1 ORDER BY n DESC", [userId]),
-      purchased: await all(env, "SELECT CASE WHEN purchased = 1 THEN 'true' ELSE 'false' END value, COUNT(*) n FROM dramas WHERE user_id = ? GROUP BY purchased ORDER BY purchased DESC", [userId]),
+      purchased: await all(env, "SELECT CASE WHEN purchased = 1 THEN '1' ELSE '0' END value, COUNT(*) n FROM dramas WHERE user_id = ? GROUP BY 1 ORDER BY value DESC", [userId]),
       serialize: await all(env, 'SELECT serialize_status value, COUNT(*) n FROM dramas WHERE user_id = ? AND serialize_status IS NOT NULL GROUP BY 1 ORDER BY n DESC', [userId]),
       category: await all(env, 'SELECT je.value value, COUNT(*) n FROM dramas d, json_each(d.categories) je WHERE d.user_id = ? GROUP BY 1 ORDER BY n DESC, value', [userId]),
       organization: await all(env, 'SELECT organization value, COUNT(*) n FROM dramas WHERE user_id = ? AND organization IS NOT NULL GROUP BY 1 ORDER BY n DESC', [userId]),

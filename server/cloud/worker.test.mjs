@@ -27,6 +27,7 @@ function testEnv() {
     ALTER TABLE dramas ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE dramas ADD COLUMN detail_error TEXT;
     ALTER TABLE dramas ADD COLUMN detail_fetched_at TEXT;
+    ALTER TABLE drama_diary_entries ADD COLUMN user_id TEXT;
     ALTER TABLE cvs ADD COLUMN user_id TEXT;
     ALTER TABLE sync_log ADD COLUMN user_id TEXT;
     CREATE UNIQUE INDEX cvs_user_name_test_idx ON cvs(user_id, name);
@@ -113,6 +114,46 @@ test('云端迁移后能读取完整剧目，并按登录用户隔离', async ()
 test('多用户模式下未登录不能访问 API', async () => {
   const response = await worker.fetch(new Request('https://example.test/api/stats'), testEnv(), { waitUntil() {} });
   assert.equal(response.status, 401);
+});
+
+test('听剧日记可新增修改删除，并按登录用户隔离', async () => {
+  const env = testEnv();
+  const ctx = { waitUntil() {} };
+  const createdResponse = await worker.fetch(apiRequest('/api/dramas', 'owner@example.com', {
+    method: 'POST', body: JSON.stringify({ title: '日记测试剧', platform: '猫耳' }),
+  }), env, ctx);
+  const drama = await createdResponse.json();
+  assert.equal(createdResponse.status, 201);
+
+  const addResponse = await worker.fetch(apiRequest(`/api/dramas/${drama.id}/diary`, 'owner@example.com', {
+    method: 'POST', body: JSON.stringify({
+      entry_date: '2026-08-10', episode_label: '第 7 集', content: '这一段对手戏很喜欢。',
+    }),
+  }), env, ctx);
+  const added = await addResponse.json();
+  assert.equal(addResponse.status, 201, JSON.stringify(added));
+  assert.equal(added.content, '这一段对手戏很喜欢。');
+
+  const ownerList = await worker.fetch(apiRequest(`/api/dramas/${drama.id}/diary`, 'owner@example.com'), env, ctx);
+  assert.equal((await ownerList.json()).length, 1);
+  const otherList = await worker.fetch(apiRequest(`/api/dramas/${drama.id}/diary`, 'other@example.com'), env, ctx);
+  assert.equal(otherList.status, 404);
+
+  const editResponse = await worker.fetch(apiRequest(`/api/dramas/${drama.id}/diary/${added.id}`, 'owner@example.com', {
+    method: 'PATCH', body: JSON.stringify({
+      entry_date: '2026-08-11', episode_label: '第 8 集', content: '改成新的碎碎念。',
+    }),
+  }), env, ctx);
+  const edited = await editResponse.json();
+  assert.equal(edited.entry_date, '2026-08-11');
+  assert.equal(edited.content, '改成新的碎碎念。');
+
+  const deleteResponse = await worker.fetch(apiRequest(`/api/dramas/${drama.id}/diary/${added.id}`, 'owner@example.com', {
+    method: 'DELETE',
+  }), env, ctx);
+  assert.equal(deleteResponse.status, 204);
+  const emptyList = await worker.fetch(apiRequest(`/api/dramas/${drama.id}/diary`, 'owner@example.com'), env, ctx);
+  assert.equal((await emptyList.json()).length, 0);
 });
 
 test('猫耳短信验证码登录后只保存会话并关联当前用户', async () => {
@@ -230,8 +271,8 @@ test('档案库按平台、类型、评分、购买状态和剧集标签筛选',
   const facetsResponse = await worker.fetch(apiRequest('/api/facets', 'filters@example.com'), env, ctx);
   const facets = await facetsResponse.json();
   assert.deepEqual(facets.purchased, [
-    { value: 'true', n: 1 },
-    { value: 'false', n: 1 },
+    { value: '1', n: 1 },
+    { value: '0', n: 1 },
   ]);
   assert.deepEqual(facets.category, [
     { value: '现代', n: 2 },
@@ -239,7 +280,7 @@ test('档案库按平台、类型、评分、购买状态和剧集标签筛选',
   ]);
 
   const filteredResponse = await worker.fetch(apiRequest(
-    '/api/dramas?platform=漫播&kind=听书&rating_min=4&purchased=false&category=悬疑',
+    '/api/dramas?platform=漫播&kind=听书&rating_min=4&purchased=0&category=悬疑',
     'filters@example.com',
   ), env, ctx);
   const filtered = await filteredResponse.json();

@@ -35,7 +35,7 @@ const PARAM: Record<string, string> = {
 
 const OPTION_LABELS: Record<string, Record<string, string>> = {
   kind: { 听书: '有声剧' },
-  purchased: { true: '已购买', false: '未购买' },
+  purchased: { '1': '已购买', '0': '未购买' },
 };
 
 function optionLabel(key: string, value: string) {

@@ -33,3 +33,15 @@ test('Postgres 的 date 会变成日期输入框可识别的 YYYY-MM-DD', () => 
     updated_at: '2026-05-29T08:30:00.000Z',
   });
 });
+
+test('听剧日记日期也会压成 YYYY-MM-DD', () => {
+  assert.deepEqual(__test.normalizeRow({
+    id: 12n,
+    drama_id: 5n,
+    entry_date: new Date('2026-08-10T00:00:00.000Z'),
+  }), {
+    id: 12,
+    drama_id: 5,
+    entry_date: '2026-08-10',
+  });
+});

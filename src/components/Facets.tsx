@@ -7,40 +7,45 @@ import type { Facets as FacetData } from '../types';
  * 前端不维护任何枚举。你加了新分类、新社团、新 CV，这里自动就有了。
  */
 
-/*
- * 只留这几组。题材/主役CV/社团/连载这几项选项太多又太长，
- * 侧栏塞不下也不是常用的筛法 —— 要按 CV 找剧去「CV」那页。
- */
 const GROUPS: { key: string; label: string; limit: number }[] = [
   { key: 'status',   label: '收听状态', limit: 8 },
   { key: 'platform', label: '平台',     limit: 5 },
   { key: 'kind',     label: '剧集类型', limit: 5 },
-  { key: 'purchased', label: '是否购买', limit: 2 },
+  { key: 'purchased', label: '购买状态', limit: 2 },
+  { key: 'category', label: '剧集标签', limit: 8 },
   { key: 'year',     label: '听完年份', limit: 8 },
 ];
 
-const DEFAULT_FOLDED: Record<string, boolean> = Object.fromEntries([
-  ...GROUPS.map(g => [g.key, true] as const),
-  ['rating', true] as const,
-]);
+const DEFAULT_FOLDED: Record<string, boolean> = {
+  status: true,
+  platform: false,
+  kind: false,
+  purchased: false,
+  category: false,
+  year: true,
+  rating: false,
+};
 
 /** facet key → /api/dramas 的查询参数名 */
 const PARAM: Record<string, string> = {
   status: 'status', platform: 'platform', kind: 'kind', serialize: 'serialize',
-  category: 'category', cv: 'cv', organization: 'organization', year: 'year',
-  purchased: 'purchased',
+  purchased: 'purchased', category: 'category', cv: 'cv',
+  organization: 'organization', year: 'year',
 };
 
-const optionLabel = (key: string, value: string) => {
-  if (key === 'purchased') return value === '1' ? '已购买' : '未购买';
-  if (key === 'kind' && value === '听书') return '有声';
-  return value;
+const OPTION_LABELS: Record<string, Record<string, string>> = {
+  kind: { 听书: '有声剧' },
+  purchased: { '1': '已购买', '0': '未购买' },
 };
 
-const paramLabel = (param: string, value: string) => {
-  const key = Object.keys(PARAM).find(k => PARAM[k] === param) ?? param;
-  return optionLabel(key, value);
-};
+function optionLabel(key: string, value: string) {
+  return OPTION_LABELS[key]?.[value] ?? value;
+}
+
+function activeLabel(param: string, value: string) {
+  const group = GROUPS.find(item => PARAM[item.key] === param);
+  return group ? optionLabel(group.key, value) : value;
+}
 
 export function Facets({
   value, onChange, version,
@@ -57,7 +62,7 @@ export function Facets({
    */
   const [folded, setFolded] = useState<Record<string, boolean>>(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem('facets:folded') ?? '{}');
+      const saved = JSON.parse(localStorage.getItem('facets:folded:v2') ?? '{}');
       return { ...DEFAULT_FOLDED, ...saved };
     } catch {
       return DEFAULT_FOLDED;
@@ -67,7 +72,7 @@ export function Facets({
   const fold = (key: string) => {
     setFolded(f => {
       const next = { ...f, [key]: !f[key] };
-      localStorage.setItem('facets:folded', JSON.stringify(next));
+      localStorage.setItem('facets:folded:v2', JSON.stringify(next));
       return next;
     });
   };
@@ -88,7 +93,7 @@ export function Facets({
         <div className="active-filters">
           {active.map(([k, v]) => (
             <span className="pill" key={k}>
-              {paramLabel(k, v)}
+              {activeLabel(k, v)}
               <button onClick={() => {
                 const next = { ...value };
                 delete next[k];

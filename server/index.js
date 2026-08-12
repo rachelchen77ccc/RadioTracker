@@ -831,6 +831,8 @@ app.get('/api/facets', (_req, res) => {
                     GROUP BY 1 ORDER BY n DESC`),
     kind: rows(`SELECT kind AS value, COUNT(*) AS n FROM dramas
                 WHERE kind IS NOT NULL AND kind <> '' GROUP BY 1 ORDER BY n DESC`),
+    purchased: rows(`SELECT CASE WHEN purchased = 1 THEN 'true' ELSE 'false' END AS value,
+                     COUNT(*) AS n FROM dramas GROUP BY purchased ORDER BY purchased DESC`),
     serialize: rows(`SELECT serialize_status AS value, COUNT(*) AS n FROM dramas
                      WHERE serialize_status IS NOT NULL GROUP BY 1 ORDER BY n DESC`),
     // 分类存成 JSON 数组，展开来数

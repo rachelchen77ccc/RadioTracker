@@ -212,3 +212,37 @@ test('听完日期会自动生成年度标签，标记听完时会补当天日�
   const finished = await finishedResponse.json();
   assert.match(finished.finished_date, /^\d{4}-\d{2}-\d{2}$/);
 });
+
+test('档案库按平台、类型、评分、购买状态和剧集标签筛选', async () => {
+  const env = testEnv();
+  const ctx = { waitUntil() {} };
+  await worker.fetch(apiRequest('/api/admin/import', 'filters@example.com', {
+    method: 'POST', body: JSON.stringify({ bundle }),
+  }), env, ctx);
+  await worker.fetch(apiRequest('/api/dramas', 'filters@example.com', {
+    method: 'POST',
+    body: JSON.stringify({
+      title: '未购买的有声剧', platform: '漫播', kind: '听书', purchased: false,
+      rating: 4.5, categories: ['悬疑', '现代'],
+    }),
+  }), env, ctx);
+
+  const facetsResponse = await worker.fetch(apiRequest('/api/facets', 'filters@example.com'), env, ctx);
+  const facets = await facetsResponse.json();
+  assert.deepEqual(facets.purchased, [
+    { value: 'true', n: 1 },
+    { value: 'false', n: 1 },
+  ]);
+  assert.deepEqual(facets.category, [
+    { value: '现代', n: 2 },
+    { value: '悬疑', n: 1 },
+  ]);
+
+  const filteredResponse = await worker.fetch(apiRequest(
+    '/api/dramas?platform=漫播&kind=听书&rating_min=4&purchased=false&category=悬疑',
+    'filters@example.com',
+  ), env, ctx);
+  const filtered = await filteredResponse.json();
+  assert.equal(filtered.total, 1);
+  assert.equal(filtered.items[0].title, '未购买的有声剧');
+});

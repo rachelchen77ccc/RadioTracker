@@ -558,6 +558,7 @@ async function handleReports(request, env, userId, url) {
       status: await all(env, 'SELECT status value, COUNT(*) n FROM dramas WHERE user_id = ? AND status IS NOT NULL GROUP BY 1 ORDER BY n DESC', [userId]),
       platform: await all(env, 'SELECT platform value, COUNT(*) n FROM dramas WHERE user_id = ? GROUP BY 1 ORDER BY n DESC', [userId]),
       kind: await all(env, "SELECT kind value, COUNT(*) n FROM dramas WHERE user_id = ? AND kind IS NOT NULL AND kind <> '' GROUP BY 1 ORDER BY n DESC", [userId]),
+      purchased: await all(env, "SELECT CASE WHEN purchased = 1 THEN 'true' ELSE 'false' END value, COUNT(*) n FROM dramas WHERE user_id = ? GROUP BY purchased ORDER BY purchased DESC", [userId]),
       serialize: await all(env, 'SELECT serialize_status value, COUNT(*) n FROM dramas WHERE user_id = ? AND serialize_status IS NOT NULL GROUP BY 1 ORDER BY n DESC', [userId]),
       category: await all(env, 'SELECT je.value value, COUNT(*) n FROM dramas d, json_each(d.categories) je WHERE d.user_id = ? GROUP BY 1 ORDER BY n DESC, value', [userId]),
       organization: await all(env, 'SELECT organization value, COUNT(*) n FROM dramas WHERE user_id = ? AND organization IS NOT NULL GROUP BY 1 ORDER BY n DESC', [userId]),

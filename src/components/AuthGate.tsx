@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { cloudEnabled, supabase } from '../cloud/supabase';
+import { cloudEnabled, githubPagesMode, supabase } from '../cloud/supabase';
 
 const AUTH_TIMEOUT_MS = 20_000;
 
@@ -40,8 +40,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const emailRedirectTo = (
+    import.meta.env.VITE_SITE_URL?.trim()
+    ||
     import.meta.env.NEXT_PUBLIC_SITE_URL?.trim()
-    || window.location.origin
+    || new URL(import.meta.env.BASE_URL, window.location.origin).href
   );
 
   useEffect(() => {
@@ -115,9 +117,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
           <label>密码<input className="input" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required minLength={8} value={password} onChange={event => setPassword(event.target.value)} /></label>
           <button className="btn primary big" disabled={busy}>{busy ? '请稍候…' : mode === 'login' ? '登录' : '创建账号'}</button>
         </form>
-        <button className="linkish auth-switch" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setMessage(null); }}>
-          {mode === 'login' ? '第一次使用？创建账号' : '已经有账号？返回登录'}
-        </button>
+        {!githubPagesMode && (
+          <button className="linkish auth-switch" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setMessage(null); }}>
+            {mode === 'login' ? '第一次使用？创建账号' : '已经有账号？返回登录'}
+          </button>
+        )}
         {mode === 'login' && (
           <button className="linkish auth-switch" disabled={busy} onClick={resendConfirmation}>
             账号还没确认？重新发送确认邮件

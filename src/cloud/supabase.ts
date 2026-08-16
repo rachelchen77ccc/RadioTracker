@@ -1,4 +1,5 @@
 import { createClient, type Session } from '@supabase/supabase-js';
+import { staticApiFetch } from './staticApi';
 
 const url = (
   import.meta.env.VITE_SUPABASE_URL
@@ -9,8 +10,10 @@ const anonKey = (
   || import.meta.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 )?.trim();
 
+export const githubPagesMode = import.meta.env.VITE_GITHUB_PAGES === 'true';
+
 function shouldProxyAuth(target: URL) {
-  if (typeof window === 'undefined' || !url) return false;
+  if (typeof window === 'undefined' || !url || githubPagesMode) return false;
   const localHost = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
   return !localHost
     && target.origin === new URL(url).origin
@@ -43,6 +46,10 @@ export async function currentSession(): Promise<Session | null> {
 }
 
 export async function appFetch(input: RequestInfo | URL, init: RequestInit = {}) {
+  const path = typeof input === 'string' ? input : input instanceof URL ? input.pathname : new URL(input.url).pathname;
+  if (githubPagesMode && path.startsWith('/api/') && supabase) {
+    return staticApiFetch(supabase, input, init);
+  }
   const headers = new Headers(init.headers);
   const session = await currentSession();
   if (session?.access_token) headers.set('Authorization', `Bearer ${session.access_token}`);

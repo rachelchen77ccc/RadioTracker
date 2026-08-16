@@ -5,7 +5,8 @@ import { DramaDrawer } from './components/DramaDrawer';
 import { SyncPanel } from './components/SyncPanel';
 import { CloudMigration } from './components/CloudMigration';
 import { SignOutButton } from './components/AuthGate';
-import { appFetch } from './cloud/supabase';
+import { appFetch, githubPagesMode } from './cloud/supabase';
+import { refreshStaticData } from './cloud/staticApi';
 import { pendingMissevanCookie } from './cloud/missevanConnect';
 import type { Drama, Stats } from './types';
 import {
@@ -71,6 +72,10 @@ export function App() {
   let no = 0;
 
   const loadMissevanSession = () => {
+    if (githubPagesMode) {
+      setMissevanSession({ hasSession: true });
+      return;
+    }
     appFetch('/api/sync/session')
       .then(response => response.json())
       .then(setMissevanSession)
@@ -96,6 +101,7 @@ export function App() {
     { running: false, step: null }
   );
   useEffect(() => {
+    if (githubPagesMode) return;
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
@@ -115,6 +121,16 @@ export function App() {
     return () => { alive = false; clearTimeout(timer); };
   }, []);
 
+  const openSync = () => {
+    if (!githubPagesMode) {
+      setSync(true);
+      return;
+    }
+    refreshStaticData();
+    bump();
+    window.alert('已重新读取云端档案。猫耳内容由 GitHub 每 6 小时在后台自动同步。');
+  };
+
   return (
     <div className="app">
       <nav className="sidebar">
@@ -127,11 +143,11 @@ export function App() {
 
         <button
           className={'sync-btn' + (syncing.running ? ' running' : '')}
-          onClick={() => setSync(true)}
-          title={syncing.running ? `同步中：${syncing.step ?? ''}` : '拉取猫耳最新数据'}
+          onClick={openSync}
+          title={githubPagesMode ? '重新读取 Supabase 云端档案' : syncing.running ? `同步中：${syncing.step ?? ''}` : '拉取猫耳最新数据'}
         >
           <span className="ic">⟳</span>
-          <span>{syncing.running ? (syncing.step ?? '同步中') : '自动更新'}</span>
+          <span>{githubPagesMode ? '刷新云端数据' : syncing.running ? (syncing.step ?? '同步中') : '自动更新'}</span>
         </button>
 
         {NAV.map(group => (
@@ -159,7 +175,7 @@ export function App() {
       </nav>
 
       <main className="main">
-        {stats?.total === 0 && (
+        {!githubPagesMode && stats?.total === 0 && (
           <div className="first-run-banner">
             <div>
               <div className="mono">FIRST SETUP</div>
@@ -183,7 +199,7 @@ export function App() {
         </Routes>
       </main>
 
-      {sync && (
+      {!githubPagesMode && sync && (
         <SyncPanel
           onClose={() => { setSync(false); setFirstRun(false); }}
           onDone={() => { bump(); loadMissevanSession(); }}

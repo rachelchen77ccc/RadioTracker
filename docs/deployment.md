@@ -68,3 +68,18 @@ npm run build:vercel
 ```
 
 构建会把 GitHub 中的 38 张本地封面复制到 Vercel 静态资源目录。数据库、迁移包、环境变量和猫耳登录信息都不会进入部署源码。
+# GitHub Pages 个人版（当前使用）
+
+网页由 `.github/workflows/pages.yml` 发布到：
+
+`https://rachelchen77ccc.github.io/RadioTracker/`
+
+- 页面、路由和样式由 GitHub Pages 托管。
+- 剧目、收听状态、听完日期、剧评和日记仍保存在 Supabase，并受账号登录和 RLS 保护。
+- 浏览器直接读取、编辑自己的 Supabase 数据，日常使用不经过 Vercel。
+- `.github/workflows/missevan-sync.yml` 每 6 小时同步一次猫耳，并把封面缓存到 Supabase Storage。
+- GitHub 仓库和构建产物中不保存猫耳 Cookie、数据库密码、service role key 或加密密钥。
+
+GitHub 仓库需要配置一个 Variable：`VITE_SUPABASE_URL`，以及五个 Secrets：
+`VITE_SUPABASE_ANON_KEY`、`DATABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`、
+`CREDENTIAL_ENCRYPTION_KEY`、`OWNER_USER_ID`。

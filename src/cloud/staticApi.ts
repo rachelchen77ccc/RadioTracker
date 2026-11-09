@@ -20,6 +20,7 @@ type Bundle = {
 };
 
 let bundlePromise: Promise<Bundle> | null = null;
+const coverHashes = new Map<string, Promise<string>>();
 
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), {
   status,
@@ -66,9 +67,22 @@ function replaceDrama(bundle: Bundle, row: Row) {
   else bundle.dramas[index] = row;
 }
 
+async function sha256(value: string) {
+  let pending = coverHashes.get(value);
+  if (!pending) {
+    pending = crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
+      .then(buffer => Array.from(new Uint8Array(buffer), byte => byte.toString(16).padStart(2, '0')).join(''));
+    coverHashes.set(value, pending);
+  }
+  return pending;
+}
+
 async function coverUrl(client: SupabaseClient, row: Row) {
-  if (!row.cover_local?.startsWith('r2:')) return row.cover_url || null;
-  return client.storage.from('drama-covers').getPublicUrl(row.cover_local.slice(3)).data.publicUrl;
+  let key: string | null = null;
+  if (row.cover_local?.startsWith('r2:')) key = row.cover_local.slice(3);
+  else if (row.cover_url) key = `remote/${await sha256(row.cover_url)}`;
+  if (!key) return null;
+  return client.storage.from('drama-covers').getPublicUrl(key).data.publicUrl;
 }
 
 async function shape(client: SupabaseClient, bundle: Bundle, row: Row): Promise<Row> {
@@ -167,6 +181,28 @@ async function importMissevanDrama(client: SupabaseClient, bundle: Bundle, rawId
   if (fetchError) throw new Error(fetchError.message);
   const imported = normalizeMissevanDrama(fetched?.detail, missevanId);
 
+  let coverLocal: string | null = null;
+  if (imported.coverUrl) {
+    try {
+      const response = await fetch(imported.coverUrl);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const contentType = response.headers.get('content-type') || 'image/jpeg';
+      if (!contentType.startsWith('image/')) throw new Error('猫耳返回的不是图片');
+      const extension = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg';
+      const hash = await sha256(imported.coverUrl);
+      const key = `${bundle.user.id}/imported/${imported.missevanId}-${hash.slice(0, 16)}.${extension}`;
+      const { error } = await client.storage.from('drama-covers').upload(key, await response.arrayBuffer(), {
+        contentType,
+        cacheControl: '31536000',
+        upsert: true,
+      });
+      if (error) throw error;
+      coverLocal = `r2:${key}`;
+    } catch (error) {
+      console.warn(`新封面缓存失败：${String((error as Error).message || error)}`);
+    }
+  }
+
   const existing = bundle.dramas.find(row => Number(row.missevan_id) === imported.missevanId);
   const categoriesEmpty = !existing?.categories || existing.categories === '[]';
   const canUpdateTotal = !existing
@@ -192,8 +228,11 @@ async function importMissevanDrama(client: SupabaseClient, bundle: Bundle, rawId
     detail_fetched_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
-  // 旧版按 ID 导入会把图片二进制转坏；保留用户自定义封面，只清掉自动生成的坏引用。
-  if (String(existing?.cover_local || '').includes('/imported/')) facts.cover_local = null;
+  if (coverLocal && (!existing?.cover_local || String(existing.cover_local).includes('/imported/'))) {
+    facts.cover_local = coverLocal;
+  } else if (String(existing?.cover_local || '').includes('/imported/')) {
+    facts.cover_local = null;
+  }
 
   let saved: Row;
   if (existing) {
@@ -267,7 +306,7 @@ async function importMissevanDrama(client: SupabaseClient, bundle: Bundle, rawId
   return {
     drama: await shape(client, bundle, saved),
     created: !existing,
-    coverCached: false,
+    coverCached: Boolean(coverLocal),
   };
 }
 

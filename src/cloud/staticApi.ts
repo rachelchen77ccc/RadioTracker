@@ -181,8 +181,11 @@ async function importMissevanDrama(client: SupabaseClient, bundle: Bundle, rawId
       cacheControl: '31536000',
       upsert: true,
     });
-    if (error) throw new Error(`封面保存失败：${error.message}`);
-    coverLocal = `r2:${key}`;
+    if (error) {
+      console.warn(`封面缓存失败，将使用猫耳原图：${error.message}`);
+    } else {
+      coverLocal = `r2:${key}`;
+    }
   }
 
   const existing = bundle.dramas.find(row => Number(row.missevan_id) === imported.missevanId);

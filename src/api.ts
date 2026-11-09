@@ -17,6 +17,10 @@ export const api = {
   drama: (id: number) => req<Drama>(`/api/dramas/${id}`),
   create: (body: Partial<Drama> & { cvNames?: string[] }) =>
     req<Drama>('/api/dramas', { method: 'POST', body: JSON.stringify(body) }),
+  importMissevan: (id: string) =>
+    req<{ drama: Drama; created: boolean; coverCached: boolean }>('/api/dramas/import-missevan', {
+      method: 'POST', body: JSON.stringify({ id }),
+    }),
   update: (id: number, body: Partial<Drama> & { cvNames?: string[] }) =>
     req<Drama>(`/api/dramas/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   remove: (id: number) => req<void>(`/api/dramas/${id}`, { method: 'DELETE' }),

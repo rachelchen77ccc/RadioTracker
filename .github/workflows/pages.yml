@@ -23,6 +23,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: 安装按 ID 导入所需的 Supabase RPC
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/004_missevan_id_import.sql
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
       - run: npm ci
       - run: npm run build
         env:

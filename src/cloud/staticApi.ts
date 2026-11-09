@@ -1,4 +1,5 @@
 import type { SupabaseClient, User } from '@supabase/supabase-js';
+import { decodeCover, normalizeMissevanDrama } from './missevanImport';
 
 const WEEKDAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 const EDITABLE = new Set([
@@ -159,6 +160,135 @@ async function setCvNames(client: SupabaseClient, bundle: Bundle, dramaId: numbe
   }
 }
 
+async function importMissevanDrama(client: SupabaseClient, bundle: Bundle, rawId: unknown) {
+  const textId = String(rawId ?? '').trim();
+  if (!/^\d{1,12}$/.test(textId) || Number(textId) <= 0) throw new Error('请输入正确的猫耳剧集 ID');
+  const missevanId = Number(textId);
+
+  const { data: fetched, error: fetchError } = await client.rpc('fetch_missevan_drama', {
+    p_missevan_id: missevanId,
+  });
+  if (fetchError) throw new Error(fetchError.message);
+  const imported = normalizeMissevanDrama(fetched?.detail, missevanId);
+
+  let coverLocal: string | null = null;
+  if (fetched?.cover_base64 && imported.coverUrl) {
+    const cover = decodeCover(fetched.cover_base64, fetched.cover_content_type);
+    const hash = await sha256(imported.coverUrl);
+    const key = `${bundle.user.id}/imported/${imported.missevanId}-${hash.slice(0, 16)}.${cover.extension}`;
+    const { error } = await client.storage.from('drama-covers').upload(key, cover.bytes, {
+      contentType: cover.type,
+      cacheControl: '31536000',
+      upsert: true,
+    });
+    if (error) throw new Error(`封面保存失败：${error.message}`);
+    coverLocal = `r2:${key}`;
+  }
+
+  const existing = bundle.dramas.find(row => Number(row.missevan_id) === imported.missevanId);
+  const categoriesEmpty = !existing?.categories || existing.categories === '[]';
+  const canUpdateTotal = !existing
+    || existing.sync_total_episodes == null
+    || existing.total_episodes == null
+    || Number(existing.total_episodes) === Number(existing.sync_total_episodes);
+  const facts: Row = {
+    kind: existing?.kind || imported.kind,
+    categories: categoriesEmpty ? JSON.stringify(imported.categories) : existing?.categories,
+    organization: existing?.organization || imported.organization,
+    abstract: existing?.abstract || imported.abstract,
+    cover_url: imported.coverUrl || existing?.cover_url || null,
+    total_episodes: canUpdateTotal ? (imported.totalEpisodes ?? existing?.total_episodes ?? null) : existing?.total_episodes,
+    serialize_status: imported.serializeStatus || existing?.serialize_status || null,
+    update_info: imported.updateInfo || existing?.update_info || null,
+    update_day: existing?.update_day || imported.updateDay,
+    price: existing?.price ?? imported.price,
+    sync_total_episodes: imported.totalEpisodes,
+    sync_newest: imported.updateInfo,
+    sync_serialize: imported.serializeStatus,
+    synced_at: new Date().toISOString(),
+    detail_error: null,
+    detail_fetched_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  if (coverLocal && (!existing?.cover_local || String(existing.cover_local).includes('/imported/'))) {
+    facts.cover_local = coverLocal;
+  }
+
+  let saved: Row;
+  if (existing) {
+    const { data, error } = await client.from('dramas').update(facts).eq('id', existing.id).select().single();
+    if (error) throw error;
+    if (!data) throw new Error('剧集更新成功，但数据库没有返回记录');
+    saved = data;
+  } else {
+    const { data, error } = await client.from('dramas').insert({
+      ...facts,
+      user_id: bundle.user.id,
+      missevan_id: imported.missevanId,
+      title: imported.title,
+      platform: '猫耳',
+      source: 'missevan',
+      purchased: 0,
+      subscribed: 0,
+    }).select().single();
+    if (error) throw error;
+    if (!data) throw new Error('剧集添加成功，但数据库没有返回记录');
+    saved = data;
+  }
+
+  const knownCvs = [...bundle.cvs];
+  const knownLinks = [...bundle.links];
+  const hasMain = knownLinks.some(link => Number(link.drama_id) === Number(saved.id) && link.role_type === '主役');
+  for (const cvData of imported.cvs) {
+    let cv = knownCvs.find(row => row.name === cvData.name);
+    if (!cv) {
+      const duplicateId = cvData.missevanId != null
+        && knownCvs.some(row => Number(row.missevan_id) === Number(cvData.missevanId));
+      const { data, error } = await client.from('cvs').insert({
+        user_id: bundle.user.id,
+        name: cvData.name,
+        missevan_id: duplicateId ? null : cvData.missevanId,
+        avatar_url: cvData.avatarUrl,
+      }).select().single();
+      if (error) throw error;
+      if (!data) throw new Error(`CV「${cvData.name}」添加成功，但数据库没有返回记录`);
+      cv = data;
+      knownCvs.push(data);
+    } else if ((!cv.missevan_id && cvData.missevanId) || (!cv.avatar_url && cvData.avatarUrl)) {
+      const duplicateId = cvData.missevanId != null
+        && knownCvs.some(row => Number(row.id) !== Number(cv!.id) && Number(row.missevan_id) === Number(cvData.missevanId));
+      const { data, error } = await client.from('cvs').update({
+        missevan_id: cv.missevan_id || (duplicateId ? null : cvData.missevanId),
+        avatar_url: cv.avatar_url || cvData.avatarUrl,
+      }).eq('id', cv.id).select().single();
+      if (error) throw error;
+      if (!data) throw new Error(`CV「${cvData.name}」更新成功，但数据库没有返回记录`);
+      cv = data;
+    }
+    if (!cv) throw new Error(`无法保存 CV「${cvData.name}」`);
+    if (knownLinks.some(link => Number(link.drama_id) === Number(saved.id) && Number(link.cv_id) === Number(cv.id))) continue;
+    const link = {
+      drama_id: saved.id,
+      cv_id: cv.id,
+      role_type: hasMain ? '配役' : cvData.suggestedRole,
+      character: cvData.character,
+    };
+    const { error } = await client.from('drama_cvs').insert(link);
+    if (error) throw error;
+    knownLinks.push(link);
+  }
+
+  invalidate();
+  const next = await loadBundle(client);
+  const row = next.dramas.find(item => Number(item.id) === Number(saved.id));
+  if (!row) throw new Error('剧集已经保存，但重新读取档案失败');
+  return {
+    drama: await shape(client, next, row),
+    created: !existing,
+    coverCached: Boolean(coverLocal),
+  };
+}
+
 async function handleMutations(client: SupabaseClient, bundle: Bundle, request: Request, url: URL) {
   const path = url.pathname;
   const detail = path.match(/^\/api\/dramas\/(\d+)$/);
@@ -220,6 +350,17 @@ async function handleMutations(client: SupabaseClient, bundle: Bundle, request: 
     invalidate();
     const next = await loadBundle(client);
     return json(await shape(client, next, next.dramas.find(row => Number(row.id) === dramaId)!));
+  }
+  if (path === '/api/dramas/import-missevan' && request.method === 'POST') {
+    const body = await request.json();
+    try {
+      const result = await importMissevanDrama(client, bundle, body.id);
+      return json(result, result.created ? 201 : 200);
+    } catch (error) {
+      const message = String((error as Error).message || error);
+      const status = /请输入正确|没有找到|不存在|已下架/.test(message) ? 400 : 502;
+      return json({ error: message }, status);
+    }
   }
   if (path === '/api/dramas/reorder' && request.method === 'PATCH') {
     const { ids, offset = 0 } = await request.json();

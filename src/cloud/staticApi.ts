@@ -1,5 +1,5 @@
 import type { SupabaseClient, User } from '@supabase/supabase-js';
-import { decodeCover, normalizeMissevanDrama } from './missevanImport';
+import { normalizeMissevanDrama } from './missevanImport';
 
 const WEEKDAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 const EDITABLE = new Set([
@@ -20,7 +20,6 @@ type Bundle = {
 };
 
 let bundlePromise: Promise<Bundle> | null = null;
-const coverHashes = new Map<string, Promise<string>>();
 
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), {
   status,
@@ -61,22 +60,15 @@ async function loadBundle(client: SupabaseClient): Promise<Bundle> {
   return bundlePromise;
 }
 
-async function sha256(value: string) {
-  let pending = coverHashes.get(value);
-  if (!pending) {
-    pending = crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
-      .then(buffer => Array.from(new Uint8Array(buffer), byte => byte.toString(16).padStart(2, '0')).join(''));
-    coverHashes.set(value, pending);
-  }
-  return pending;
+function replaceDrama(bundle: Bundle, row: Row) {
+  const index = bundle.dramas.findIndex(item => Number(item.id) === Number(row.id));
+  if (index === -1) bundle.dramas.push(row);
+  else bundle.dramas[index] = row;
 }
 
 async function coverUrl(client: SupabaseClient, row: Row) {
-  let key: string | null = null;
-  if (row.cover_local?.startsWith('r2:')) key = row.cover_local.slice(3);
-  else if (row.cover_url) key = `remote/${await sha256(row.cover_url)}`;
-  if (!key) return row.cover_url || null;
-  return client.storage.from('drama-covers').getPublicUrl(key).data.publicUrl;
+  if (!row.cover_local?.startsWith('r2:')) return row.cover_url || null;
+  return client.storage.from('drama-covers').getPublicUrl(row.cover_local.slice(3)).data.publicUrl;
 }
 
 async function shape(client: SupabaseClient, bundle: Bundle, row: Row): Promise<Row> {
@@ -148,15 +140,19 @@ async function setCvNames(client: SupabaseClient, bundle: Bundle, dramaId: numbe
   const clean = Array.from(new Set(names.map(name => name.trim()).filter(Boolean)));
   const { error: deleteError } = await client.from('drama_cvs').delete().eq('drama_id', dramaId);
   if (deleteError) throw deleteError;
+  bundle.links = bundle.links.filter(link => Number(link.drama_id) !== dramaId);
   for (const name of clean) {
     let cv = bundle.cvs.find(row => row.name === name);
     if (!cv) {
       const { data, error } = await client.from('cvs').insert({ user_id: bundle.user.id, name }).select().single();
       if (error) throw error;
       cv = data;
+      bundle.cvs.push(data);
     }
-    const { error } = await client.from('drama_cvs').insert({ drama_id: dramaId, cv_id: cv!.id, role_type: '主役' });
+    const link = { drama_id: dramaId, cv_id: cv!.id, role_type: '主役' };
+    const { error } = await client.from('drama_cvs').insert(link);
     if (error) throw error;
+    bundle.links.push(link);
   }
 }
 
@@ -170,23 +166,6 @@ async function importMissevanDrama(client: SupabaseClient, bundle: Bundle, rawId
   });
   if (fetchError) throw new Error(fetchError.message);
   const imported = normalizeMissevanDrama(fetched?.detail, missevanId);
-
-  let coverLocal: string | null = null;
-  if (fetched?.cover_base64 && imported.coverUrl) {
-    const cover = decodeCover(fetched.cover_base64, fetched.cover_content_type);
-    const hash = await sha256(imported.coverUrl);
-    const key = `${bundle.user.id}/imported/${imported.missevanId}-${hash.slice(0, 16)}.${cover.extension}`;
-    const { error } = await client.storage.from('drama-covers').upload(key, cover.bytes, {
-      contentType: cover.type,
-      cacheControl: '31536000',
-      upsert: true,
-    });
-    if (error) {
-      console.warn(`封面缓存失败，将使用猫耳原图：${error.message}`);
-    } else {
-      coverLocal = `r2:${key}`;
-    }
-  }
 
   const existing = bundle.dramas.find(row => Number(row.missevan_id) === imported.missevanId);
   const categoriesEmpty = !existing?.categories || existing.categories === '[]';
@@ -213,9 +192,8 @@ async function importMissevanDrama(client: SupabaseClient, bundle: Bundle, rawId
     detail_fetched_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
-  if (coverLocal && (!existing?.cover_local || String(existing.cover_local).includes('/imported/'))) {
-    facts.cover_local = coverLocal;
-  }
+  // 旧版按 ID 导入会把图片二进制转坏；保留用户自定义封面，只清掉自动生成的坏引用。
+  if (String(existing?.cover_local || '').includes('/imported/')) facts.cover_local = null;
 
   let saved: Row;
   if (existing) {
@@ -257,6 +235,7 @@ async function importMissevanDrama(client: SupabaseClient, bundle: Bundle, rawId
       if (!data) throw new Error(`CV「${cvData.name}」添加成功，但数据库没有返回记录`);
       cv = data;
       knownCvs.push(data);
+      bundle.cvs.push(data);
     } else if ((!cv.missevan_id && cvData.missevanId) || (!cv.avatar_url && cvData.avatarUrl)) {
       const duplicateId = cvData.missevanId != null
         && knownCvs.some(row => Number(row.id) !== Number(cv!.id) && Number(row.missevan_id) === Number(cvData.missevanId));
@@ -267,6 +246,8 @@ async function importMissevanDrama(client: SupabaseClient, bundle: Bundle, rawId
       if (error) throw error;
       if (!data) throw new Error(`CV「${cvData.name}」更新成功，但数据库没有返回记录`);
       cv = data;
+      const cvIndex = bundle.cvs.findIndex(row => Number(row.id) === Number(data.id));
+      if (cvIndex !== -1) bundle.cvs[cvIndex] = data;
     }
     if (!cv) throw new Error(`无法保存 CV「${cvData.name}」`);
     if (knownLinks.some(link => Number(link.drama_id) === Number(saved.id) && Number(link.cv_id) === Number(cv.id))) continue;
@@ -279,16 +260,14 @@ async function importMissevanDrama(client: SupabaseClient, bundle: Bundle, rawId
     const { error } = await client.from('drama_cvs').insert(link);
     if (error) throw error;
     knownLinks.push(link);
+    bundle.links.push(link);
   }
 
-  invalidate();
-  const next = await loadBundle(client);
-  const row = next.dramas.find(item => Number(item.id) === Number(saved.id));
-  if (!row) throw new Error('剧集已经保存，但重新读取档案失败');
+  replaceDrama(bundle, saved);
   return {
-    drama: await shape(client, next, row),
+    drama: await shape(client, bundle, saved),
     created: !existing,
-    coverCached: Boolean(coverLocal),
+    coverCached: false,
   };
 }
 
@@ -348,11 +327,10 @@ async function handleMutations(client: SupabaseClient, bundle: Bundle, request: 
     const key = `${bundle.user.id}/custom/${dramaId}-${Date.now()}.${extension}`;
     const { error: uploadError } = await client.storage.from('drama-covers').upload(key, bytes, { contentType: `image/${match[1]}` });
     if (uploadError) return json({ error: uploadError.message }, 400);
-    const { error } = await client.from('dramas').update({ cover_local: `r2:${key}`, updated_at: new Date().toISOString() }).eq('id', dramaId);
+    const { data, error } = await client.from('dramas').update({ cover_local: `r2:${key}`, updated_at: new Date().toISOString() }).eq('id', dramaId).select().single();
     if (error) return json({ error: error.message }, 400);
-    invalidate();
-    const next = await loadBundle(client);
-    return json(await shape(client, next, next.dramas.find(row => Number(row.id) === dramaId)!));
+    replaceDrama(bundle, data);
+    return json(await shape(client, bundle, data));
   }
   if (path === '/api/dramas/import-missevan' && request.method === 'POST') {
     const body = await request.json();
@@ -411,14 +389,15 @@ async function handleMutations(client: SupabaseClient, bundle: Bundle, request: 
       patch.finished_date = body.finished_date === undefined ? (current.finished_date || todayInChina()) : body.finished_date;
       if ((body.total_episodes ?? current.total_episodes) != null) patch.heard_episodes = body.total_episodes ?? current.total_episodes;
     }
+    let saved = current;
     if (Object.keys(patch).length > 1) {
-      const { error } = await client.from('dramas').update(patch).eq('id', dramaId);
+      const { data, error } = await client.from('dramas').update(patch).eq('id', dramaId).select().single();
       if (error) return json({ error: error.message }, 400);
+      saved = data;
+      replaceDrama(bundle, saved);
     }
     if (Array.isArray(body.cvNames)) await setCvNames(client, bundle, dramaId, body.cvNames);
-    invalidate();
-    const next = await loadBundle(client);
-    return json(await shape(client, next, next.dramas.find(row => Number(row.id) === dramaId)!));
+    return json(await shape(client, bundle, saved));
   }
   if (detail && request.method === 'DELETE') {
     const { error } = await client.from('dramas').delete().eq('id', Number(detail[1]));
@@ -444,10 +423,9 @@ async function handleMutations(client: SupabaseClient, bundle: Bundle, request: 
     };
     const { data, error } = await client.from('dramas').insert(insert).select().single();
     if (error) return json({ error: error.message }, 400);
+    replaceDrama(bundle, data);
     if (Array.isArray(body.cvNames)) await setCvNames(client, bundle, Number(data.id), body.cvNames);
-    invalidate();
-    const next = await loadBundle(client);
-    return json(await shape(client, next, next.dramas.find(row => Number(row.id) === Number(data.id))!), 201);
+    return json(await shape(client, bundle, data), 201);
   }
   return null;
 }

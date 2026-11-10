@@ -186,17 +186,21 @@ async function importMissevanDrama(client: SupabaseClient, bundle: Bundle, rawId
     try {
       const response = await fetch(imported.coverUrl);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const contentType = response.headers.get('content-type') || 'image/jpeg';
+      const blob = await response.blob();
+      const contentType = blob.type || response.headers.get('content-type') || 'image/jpeg';
       if (!contentType.startsWith('image/')) throw new Error('猫耳返回的不是图片');
+      if (blob.size < 512) throw new Error('猫耳返回的图片内容为空');
       const extension = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg';
       const hash = await sha256(imported.coverUrl);
       const key = `${bundle.user.id}/imported/${imported.missevanId}-${hash.slice(0, 16)}.${extension}`;
-      const { error } = await client.storage.from('drama-covers').upload(key, await response.arrayBuffer(), {
+      const { error } = await client.storage.from('drama-covers').upload(key, blob, {
         contentType,
         cacheControl: '31536000',
         upsert: true,
       });
       if (error) throw error;
+      const { data: stored, error: verifyError } = await client.storage.from('drama-covers').download(key);
+      if (verifyError || !stored || stored.size < 512) throw verifyError || new Error('封面上传后校验失败');
       coverLocal = `r2:${key}`;
     } catch (error) {
       console.warn(`新封面缓存失败：${String((error as Error).message || error)}`);

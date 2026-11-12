@@ -57,15 +57,22 @@ export function DramaDrawer({
   const [d, setD] = useState(drama);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   // 待提交的字段。只发改过的，避免把整个对象回写一遍。
   const pending = useRef<Record<string, unknown>>({});
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inFlight = useRef<Promise<void> | null>(null);
   const [share, setShare] = useState<string | null>(null);
   const [diaryOpen, setDiaryOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { setD(drama); pending.current = {}; }, [drama.id]);
+  useEffect(() => {
+    setD(drama);
+    pending.current = {};
+    setSaveError(null);
+    setSavedAt(null);
+  }, [drama.id]);
 
   useEffect(() => {
     const esc = (e: KeyboardEvent) => {
@@ -82,24 +89,42 @@ export function DramaDrawer({
   useEffect(() => () => { if (share) URL.revokeObjectURL(share); }, [share]);
 
   /**
-   * 自动保存。改一下就排一次提交，600ms 内的连续输入合并成一次请求
-   * （打字时不会每敲一个字发一次）。
+   * 自动保存使用单条串行队列，慢请求不会覆盖随后做出的改动。
    */
-  const flush = async () => {
+  const flush = (): Promise<void> => {
+    if (inFlight.current) {
+      return inFlight.current;
+    }
     const patch = pending.current;
-    if (!Object.keys(patch).length) return;
+    if (!Object.keys(patch).length) return Promise.resolve();
     pending.current = {};
     setSaving(true);
-    try {
-      const saved = await api.update(d.id, patch);
-      onSaved(saved);
-      setSavedAt(Date.now());
-    } catch {
-      // 失败就把这批改动放回队列，下次再试，不静默丢掉
-      pending.current = { ...patch, ...pending.current };
-    } finally {
-      setSaving(false);
-    }
+    setSaveError(null);
+    let succeeded = false;
+    const request = api.update(drama.id, patch)
+      .then(saved => {
+        succeeded = true;
+        onSaved(saved);
+        setSavedAt(Date.now());
+      })
+      .catch(error => {
+        // 保留失败的改动，并明确告诉用户；不再出现“看似保存、实际没保存”。
+        pending.current = { ...patch, ...pending.current };
+        setSaveError(String((error as Error).message || error || '保存失败'));
+      })
+      .finally(() => {
+        inFlight.current = null;
+        const shouldContinue = succeeded && Object.keys(pending.current).length > 0;
+        if (shouldContinue) void flush();
+        else setSaving(false);
+      });
+    inFlight.current = request;
+    return request;
+  };
+
+  const scheduleFlush = (delay: number) => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => void flush(), delay);
   };
 
   const set = <K extends keyof Drama>(k: K, v: Drama[K]) => {
@@ -121,14 +146,14 @@ export function DramaDrawer({
       pending.current[k as string] = v;
     }
     if (autoFinishedDate) pending.current.finished_date = autoFinishedDate;
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(flush, 600);
+    // 离散操作应当马上落库；长文本稍作合并，避免每个按键都发请求。
+    scheduleFlush(k === 'status' || k === 'purchased' ? 0 : k === 'review' ? 300 : 180);
   };
 
   // 关窗前把还没提交的改动送出去
   const closeAndFlush = () => {
     if (timer.current) clearTimeout(timer.current);
-    flush();
+    void flush();
     onClose();
   };
 
@@ -399,8 +424,9 @@ export function DramaDrawer({
 
         <div style={{ display: 'flex', gap: 8, marginTop: 18, alignItems: 'center', flexWrap: 'wrap' }}>
           <span className="autosave mono">
-            {saving ? '保存中…' : savedAt ? '已自动保存' : '改动会自动保存'}
+            {saveError ? `保存失败：${saveError}` : saving ? '保存中…' : savedAt ? '已自动保存' : '改动会自动保存'}
           </span>
+          {saveError && <button className="btn" onClick={() => void flush()}>重试保存</button>}
           <button className="btn" onClick={makeShare} disabled={busy === 'share'}>
             {busy === 'share' ? '生成中' : '生成分享长图'}
           </button>

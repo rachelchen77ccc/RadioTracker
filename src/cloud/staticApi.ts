@@ -8,6 +8,7 @@ const EDITABLE = new Set([
   'rewatch_status', 'rewatch_queued', 'review', 'serialize_status', 'update_info',
   'update_day', 'price', 'organization', 'abstract', 'cover_url', 'missevan_id',
 ]);
+const SMALLINT_FLAGS = new Set(['purchased', 'subscribed', 'rewatch_queued']);
 
 type Row = Record<string, any>;
 type Bundle = {
@@ -65,6 +66,10 @@ function replaceDrama(bundle: Bundle, row: Row) {
   const index = bundle.dramas.findIndex(item => Number(item.id) === Number(row.id));
   if (index === -1) bundle.dramas.push(row);
   else bundle.dramas[index] = row;
+}
+
+function dbValue(key: string, value: unknown) {
+  return SMALLINT_FLAGS.has(key) ? (value ? 1 : 0) : value;
 }
 
 async function sha256(value: string) {
@@ -401,7 +406,9 @@ async function handleMutations(client: SupabaseClient, bundle: Bundle, request: 
     const ids = Array.isArray(body.ids) ? body.ids.map(Number) : [];
     if (!ids.length) return json({ error: '没有选中任何剧' }, 400);
     const patch: Row = { updated_at: new Date().toISOString() };
-    for (const key of ['status', 'rewatch_queued', 'purchased', 'platform']) if (body[key] !== undefined) patch[key] = body[key];
+    for (const key of ['status', 'rewatch_queued', 'purchased', 'platform']) {
+      if (body[key] !== undefined) patch[key] = dbValue(key, body[key]);
+    }
     if (body.status === '听完') {
       patch.finished_date = todayInChina();
       for (const row of bundle.dramas.filter(item => ids.includes(Number(item.id)))) {
@@ -424,7 +431,9 @@ async function handleMutations(client: SupabaseClient, bundle: Bundle, request: 
     const dramaId = Number(detail[1]);
     const body = await request.json();
     const patch: Row = { updated_at: new Date().toISOString() };
-    for (const [key, value] of Object.entries(body)) if (EDITABLE.has(key)) patch[key] = value;
+    for (const [key, value] of Object.entries(body)) {
+      if (EDITABLE.has(key)) patch[key] = dbValue(key, value);
+    }
     if (Array.isArray(body.categories)) patch.categories = JSON.stringify(body.categories);
     const current = bundle.dramas.find(row => Number(row.id) === dramaId);
     if (!current) return json({ error: '没找到这部剧' }, 404);

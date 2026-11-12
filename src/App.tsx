@@ -135,7 +135,7 @@ export function App() {
         <DramaDrawer
           drama={open}
           onClose={() => setOpen(null)}
-          onSaved={d => { setOpen(d); bump(); }}
+          onSaved={() => bump()}
           onDeleted={() => { setOpen(null); bump(); }}
         />
       )}

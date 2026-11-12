@@ -434,9 +434,14 @@ async function handleMutations(client: SupabaseClient, bundle: Bundle, request: 
     }
     let saved = current;
     if (Object.keys(patch).length > 1) {
-      const { data, error } = await client.from('dramas').update(patch).eq('id', dramaId).select().single();
+      // PATCH 已经包含完整的变更值，无需再让数据库回传整行。
+      // 省掉 return=representation 的响应体，移动网络下会明显更快。
+      const { error, count } = await client.from('dramas')
+        .update(patch, { count: 'exact' })
+        .eq('id', dramaId);
       if (error) return json({ error: error.message }, 400);
-      saved = data;
+      if (count !== 1) return json({ error: '保存未生效，请刷新登录状态后重试' }, 409);
+      saved = { ...current, ...patch };
       replaceDrama(bundle, saved);
     }
     if (Array.isArray(body.cvNames)) await setCvNames(client, bundle, dramaId, body.cvNames);

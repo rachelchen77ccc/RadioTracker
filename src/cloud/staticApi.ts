@@ -72,6 +72,14 @@ function dbValue(key: string, value: unknown) {
   return SMALLINT_FLAGS.has(key) ? (value ? 1 : 0) : value;
 }
 
+function nextBoughtOrder(bundle: Bundle) {
+  const ranks = bundle.dramas
+    .filter(row => Boolean(row.purchased) && row.bought_order != null)
+    .map(row => Number(row.bought_order))
+    .filter(Number.isFinite);
+  return Math.min(0, ...ranks) - 1;
+}
+
 async function sha256(value: string) {
   let pending = coverHashes.get(value);
   if (!pending) {
@@ -237,6 +245,12 @@ async function importMissevanDrama(client: SupabaseClient, bundle: Bundle, rawId
     detail_fetched_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
+  // “按 ID 添加”是手动购入入口：新加入的剧直接进入已购，并排在现有列表最前。
+  // 已经在已购中的剧重复抓取时保留原来的购买顺序。
+  if (!Boolean(existing?.purchased)) {
+    facts.purchased = 1;
+    facts.bought_order = nextBoughtOrder(bundle);
+  }
   if (coverLocal && (!existing?.cover_local || String(existing.cover_local).includes('/imported/'))) {
     facts.cover_local = coverLocal;
   } else if (String(existing?.cover_local || '').includes('/imported/')) {
@@ -257,7 +271,6 @@ async function importMissevanDrama(client: SupabaseClient, bundle: Bundle, rawId
       title: imported.title,
       platform: '猫耳',
       source: 'missevan',
-      purchased: 0,
       subscribed: 0,
     }).select().single();
     if (error) throw error;
@@ -437,6 +450,11 @@ async function handleMutations(client: SupabaseClient, bundle: Bundle, request: 
     if (Array.isArray(body.categories)) patch.categories = JSON.stringify(body.categories);
     const current = bundle.dramas.find(row => Number(row.id) === dramaId);
     if (!current) return json({ error: '没找到这部剧' }, 404);
+    if (body.purchased === true && !Boolean(current.purchased)) {
+      patch.bought_order = nextBoughtOrder(bundle);
+    } else if (body.purchased === false) {
+      patch.bought_order = null;
+    }
     if (body.status === '听完') {
       patch.finished_date = body.finished_date === undefined ? (current.finished_date || todayInChina()) : body.finished_date;
       if ((body.total_episodes ?? current.total_episodes) != null) patch.heard_episodes = body.total_episodes ?? current.total_episodes;

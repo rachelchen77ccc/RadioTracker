@@ -48,7 +48,7 @@ export function MissevanImport({
         </h2>
         <p style={{ margin: '0 0 20px', color: 'var(--ink-2)', fontSize: 13, lineHeight: 1.7 }}>
           输入猫耳剧集页面中的数字 ID，自动补齐剧名、CV、标签、集数和封面。
-          这个入口只在你点击时运行，不需要猫耳登录，也不会自动刷新其他剧集。
+          新添加的剧会进入已购列表最前面。这个入口只在你点击时运行，不需要猫耳登录，也不会自动刷新其他剧集。
         </p>
 
         <form onSubmit={submit}>

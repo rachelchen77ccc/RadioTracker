@@ -247,7 +247,7 @@ async function importMissevanDrama(client: SupabaseClient, bundle: Bundle, rawId
   };
   // “按 ID 添加”是手动购入入口：新加入的剧直接进入已购，并排在现有列表最前。
   // 已经在已购中的剧重复抓取时保留原来的购买顺序。
-  if (!Boolean(existing?.purchased)) {
+  if (!Boolean(existing?.purchased) || existing?.bought_order == null) {
     facts.purchased = 1;
     facts.bought_order = nextBoughtOrder(bundle);
   }
